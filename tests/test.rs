@@ -19,7 +19,7 @@ fn cons_1() {
 
 #[test]
 fn cons_2() {
-    let s = CharList::new().cons('a').cons('b');
+    let s = CharList::new().cons('b').cons('a');
     assert_eq!(s.as_ref(), "ab");
 }
 

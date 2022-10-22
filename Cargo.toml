@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 front-vec = "0.0.2"
+
+[dev-dependencies]
+maybe-debug = "0.1.0"

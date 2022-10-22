@@ -14,21 +14,13 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         Self { priorities, value }
     }
 
-    pub fn has_only_one_ref(&self) -> bool {
-        self.priorities.len() == 1 && {
-            let (_, &count) = self.priorities.last_key_value().unwrap();
-            let count: usize = count.into();
-            count == 1
-        }
+    pub fn max_priority(this: &Self) -> Priority {
+        let (&max_proi, _) = this.priorities.last_key_value().unwrap();
+        max_proi
     }
 
-    pub fn get_max_priority_count(&self) -> (&Priority, &Count) {
-        self.priorities.last_key_value().unwrap()
-    }
-
-    pub fn try_inner_mut(&mut self, prio: Priority) -> Option<&mut T> {
-        let (&max_prio, _) = self.get_max_priority_count();
-        (prio == max_prio).then(|| &mut self.value)
+    pub fn try_inner_mut(this: &mut Self, prio: Priority) -> Option<&mut T> {
+        (prio == Self::max_priority(this)).then(|| &mut this.value)
     }
 
     pub fn incr_count(&mut self, prio: Priority) {
@@ -39,10 +31,16 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
     }
 
     pub fn decr_count(&mut self, prio: Priority) {
-        let count = self
-            .priorities
-            .get_mut(&prio)
-            .expect("priority needs to be in the map");
+        let count_res = self.priorities.get_mut(&prio);
+        let count = if cfg!(test) {
+            count_res.unwrap_or_else(|| {
+                #[cfg(test)]
+                maybe_debug::dbg!("priority `{prio:?}` is not in the map!");
+                panic!("cannot unwrap value because given priority is not registered.")
+            })
+        } else {
+            count_res.unwrap()
+        };
 
         match usize::from(*count) {
             0 => unreachable!(),
@@ -55,6 +53,13 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
                 *count = unsafe { NonZeroUsize::new_unchecked(n - 1) };
             }
         }
+    }
+
+    pub fn ref_count(this: &Self) -> usize {
+        this.priorities
+            .iter()
+            .map(|(_, &count)| usize::from(count))
+            .sum()
     }
 }
 

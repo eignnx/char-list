@@ -14,7 +14,7 @@ impl CharList {
     }
 
     pub fn len(&self) -> usize {
-        self.data.priority()
+        PqRc::priority(&self.data)
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -24,9 +24,10 @@ impl CharList {
     }
 
     pub fn cons(&self, ch: char) -> Self {
-        unsafe {
-            Self {
-                data: self.data.mutate_or_clone(
+        Self {
+            data: unsafe {
+                PqRc::mutate_or_clone(
+                    &self.data,
                     |string_mut| {
                         string_mut.push_char_front(ch);
                         ch.len_utf8()
@@ -36,29 +37,9 @@ impl CharList {
                         new_string.push_char_front(ch);
                         (ch.len_utf8(), new_string)
                     },
-                ),
-            }
+                )
+            },
         }
-        // match unsafe { self.data.try_as_mut() } {
-        //     Some(inner_mut) => {
-        //         inner_mut.push_char_front(ch);
-
-        //         Self {
-        //             data: {
-        //                 let new_len = self.len() + ch.len_utf8();
-        //                 self.data.clone_with_new_priority(new_len)
-        //             },
-        //         }
-        //     }
-        //     None => {
-        //         let mut cloned_front_string = FrontString::from(self.as_ref());
-        //         cloned_front_string.push_char_front(ch);
-        //         let new_len = self.len() + ch.len_utf8();
-        //         Self {
-        //             data: PqRc::new(cloned_front_string, new_len),
-        //         }
-        //     }
-        // }
     }
 
     pub fn car_cdr(&self) -> (char, Self) {

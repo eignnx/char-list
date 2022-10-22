@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{alloc::Layout, marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use super::pq_rc_cell::PqRcCell;
@@ -37,8 +38,24 @@ impl<T, Priority: Ord + Copy> PqRc<T, Priority> {
         }
     }
 
-    pub fn priority(&self) -> Priority {
-        self.prio
+    unsafe fn from_prio_ptr(prio: Priority, mut ptr: NonNull<PqRcCell<T, Priority>>) -> Self {
+        unsafe {
+            ptr.as_mut().incr_count(prio);
+        }
+        Self {
+            prio,
+            ptr,
+            _t_marker: Default::default(),
+            _p_marker: Default::default(),
+        }
+    }
+
+    pub fn priority(this: &Self) -> Priority {
+        this.prio
+    }
+
+    pub fn ref_count(this: &Self) -> usize {
+        PqRcCell::ref_count(this.cell_ref())
     }
 
     fn cell_ref(&self) -> &PqRcCell<T, Priority> {
@@ -52,9 +69,9 @@ impl<T, Priority: Ord + Copy> PqRc<T, Priority> {
     /// # Safety
     /// With the returned `&mut`, you **must not** mutate the inner value in a
     /// way that is visible to any other `PqRc`.
-    pub unsafe fn try_as_mut(&self) -> Option<&mut T> {
-        let cell_ref_mut = unsafe { self.ptr.as_ptr().as_mut().unwrap_unchecked() };
-        cell_ref_mut.try_inner_mut(self.prio)
+    pub unsafe fn try_as_mut(this: &Self) -> Option<&mut T> {
+        let cell_ref_mut = unsafe { this.ptr.as_ptr().as_mut().unwrap_unchecked() };
+        PqRcCell::try_inner_mut(cell_ref_mut, this.prio)
     }
 
     /// A new `PqRc` `x` is returned from this function where `x`'s priority is
@@ -71,22 +88,19 @@ impl<T, Priority: Ord + Copy> PqRc<T, Priority> {
     /// With the provided `&mut`, you **must not** mutate the inner value in a
     /// way that is visible to any other `PqRc` (except the new one just created).
     pub unsafe fn mutate_or_clone<'a>(
-        &'a self,
+        this: &'a Self,
         new_prio_mut: impl Fn(&'a mut T) -> Priority,
         new_prio_ref: impl Fn(&'a T) -> (Priority, T),
     ) -> Self {
-        match unsafe { self.try_as_mut() } {
+        // SAFETY: `inner_ref` will be mutated according to `new_prio_mut`, whose
+        // requirements are listed in this function's safety section.
+        match unsafe { Self::try_as_mut(this) } {
             Some(inner_ref) => {
                 let new_prio = new_prio_mut(inner_ref);
-                Self {
-                    prio: new_prio,
-                    ptr: self.ptr,
-                    _t_marker: Default::default(),
-                    _p_marker: Default::default(),
-                }
+                unsafe { Self::from_prio_ptr(new_prio, this.ptr) }
             }
             None => {
-                let (new_prio, new_value) = new_prio_ref(self.deref());
+                let (new_prio, new_value) = new_prio_ref(this.deref());
                 Self::new(new_value, new_prio)
             }
         }
@@ -112,10 +126,9 @@ impl<T, Priority: Ord + Copy> Clone for PqRc<T, Priority> {
 impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
     fn drop(&mut self) {
         let cell = unsafe { self.ptr.as_mut() };
-        if cell.has_only_one_ref() {
+        cell.decr_count(self.prio);
+        if PqRcCell::ref_count(cell) == 0 {
             unsafe { std::ptr::drop_in_place(cell as *mut _) }
-        } else {
-            cell.decr_count(self.prio);
         }
     }
 }
@@ -125,5 +138,33 @@ impl<T, Priority: Ord + Copy> Deref for PqRc<T, Priority> {
 
     fn deref(&self) -> &Self::Target {
         self.cell_ref().deref()
+    }
+}
+
+impl<U, T, Priority> PartialEq<U> for PqRc<T, Priority>
+where
+    Priority: Ord + Copy,
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &U) -> bool {
+        self.cell_ref().deref().eq(other)
+    }
+}
+
+impl<T, Priority: Ord + Copy> fmt::Debug for PqRc<T, Priority>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T, Priority: Ord + Copy> fmt::Display for PqRc<T, Priority>
+where
+    T: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
     }
 }
