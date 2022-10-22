@@ -1,3 +1,5 @@
+use std::fmt;
+
 use front_vec::FrontString;
 
 use crate::pq_rc::PqRc;
@@ -52,3 +54,48 @@ impl AsRef<str> for CharList {
         &self.data[self.data.len() - self.len()..]
     }
 }
+
+impl From<&str> for CharList {
+    fn from(s: &str) -> Self {
+        Self {
+            data: PqRc::new_from(s, s.as_bytes().len()),
+        }
+    }
+}
+
+// TODO: Is there an efficient way to impl From<String> for FrontString?
+// See this issue: https://github.com/eignnx/char-list/issues/1
+//
+// impl From<String> for CharList {
+//     fn from(string: String) -> Self {
+//         let len = string.as_bytes().len();
+//         Self {
+//             data: PqRc::new_from(string, len),
+//         }
+//     }
+// }
+
+impl fmt::Debug for CharList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let slice: &str = self.as_ref();
+        write!(f, "{slice:?}")
+    }
+}
+
+impl fmt::Display for CharList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let slice: &str = self.as_ref();
+        write!(f, "{slice}")
+    }
+}
+
+impl<S> PartialEq<S> for CharList
+where
+    S: AsRef<str>,
+{
+    fn eq(&self, other: &S) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+impl Eq for CharList {}

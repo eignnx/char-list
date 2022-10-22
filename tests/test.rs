@@ -8,13 +8,13 @@ fn construct_destruct() {
 #[test]
 fn construct_cmp() {
     let s = CharList::new();
-    assert_eq!(s.as_ref(), "");
+    assert_eq!(s, "");
 }
 
 #[test]
 fn cons_1() {
     let s = CharList::new().cons('a');
-    assert_eq!(s.as_ref(), "a");
+    assert_eq!(s, "a");
 }
 
 #[test]
@@ -24,13 +24,13 @@ fn cons_2() {
     let s2 = s1.cons('y');
     let s3 = s2.cons('x');
     assert_eq!(s0.len(), 0);
-    assert_eq!(s0.as_ref(), "");
+    assert_eq!(s0, "");
     assert_eq!(s1.len(), 1);
-    assert_eq!(s1.as_ref(), "z");
+    assert_eq!(s1, "z");
     assert_eq!(s2.len(), 2);
-    assert_eq!(s2.as_ref(), "yz");
+    assert_eq!(s2, "yz");
     assert_eq!(s3.len(), 3);
-    assert_eq!(s3.as_ref(), "xyz");
+    assert_eq!(s3, "xyz");
 }
 
 #[test]
@@ -40,5 +40,12 @@ fn cons_hirigana() {
     for ch in entire.chars().rev() {
         s = s.cons(ch);
     }
-    assert_eq!(s.as_ref(), entire);
+    assert_eq!(s, entire);
+}
+
+#[test]
+fn from_str() {
+    let text = "いろはにほへとちりぬるを";
+    let s = CharList::from(text);
+    assert_eq!(s, text);
 }

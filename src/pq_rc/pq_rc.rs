@@ -21,22 +21,35 @@ impl<T, Priority> PqRc<T, Priority>
 where
     Priority: Ord + Copy + Add<Output = Priority>,
 {
-    pub fn new(t: T, prio: Priority) -> Self {
+    fn alloc_ptr() -> NonNull<PqRcCell<T, Priority>> {
         let layout = Layout::new::<PqRcCell<T, Priority>>();
         let ptr = unsafe { std::alloc::alloc(layout) };
         let ptr = ptr as *mut PqRcCell<T, Priority>;
-
-        if ptr.is_null() {
-            std::alloc::handle_alloc_error(layout);
+        match NonNull::new(ptr) {
+            Some(ptr) => ptr,
+            None => std::alloc::handle_alloc_error(layout),
         }
+    }
 
-        let ptr = unsafe {
-            ptr.as_uninit_mut()
-                .unwrap_unchecked()
-                .write(PqRcCell::new(t, prio))
-        };
+    pub fn new(value: T, priority: Priority) -> Self {
+        let cell = PqRcCell::new(value, priority);
+        // SAFETY: `cell` knows about the `PqRc` that we're about to create since
+        // the `new` function registers a new referee.
+        unsafe { Self::from_cell_and_prio(cell, priority) }
+    }
 
-        let ptr = NonNull::from(ptr);
+    pub fn new_from(value: impl Into<T>, priority: Priority) -> Self {
+        Self::new(value.into(), priority)
+    }
+
+    /// # Safety
+    /// * `cell` must account for the `PqRc` that will be created by this function.
+    unsafe fn from_cell_and_prio(cell: PqRcCell<T, Priority>, prio: Priority) -> Self {
+        let ptr = Self::alloc_ptr();
+
+        unsafe {
+            ptr.as_uninit_mut().write(cell);
+        }
 
         Self {
             prio,
@@ -46,10 +59,15 @@ where
         }
     }
 
-    unsafe fn from_prio_ptr(prio: Priority, mut ptr: NonNull<PqRcCell<T, Priority>>) -> Self {
+    /// # Safety
+    /// * `ptr` must point to an existing `PqRcCell`.
+    unsafe fn from_prio_and_ptr(prio: Priority, mut ptr: NonNull<PqRcCell<T, Priority>>) -> Self {
         unsafe {
+            // Because `ptr` refers to an existing `PqRcCell` and we're creating
+            // a new `PqRc`, we **gotta** increment the count!
             ptr.as_mut().incr_count(prio);
         }
+
         Self {
             prio,
             ptr,
@@ -102,11 +120,14 @@ where
         new_prio_ref: impl Fn(&'a T) -> (Priority, T),
     ) -> Self {
         // SAFETY: `inner_ref` will be mutated according to `new_prio_mut`, whose
-        // requirements are listed in this function's safety section.
+        // requirements are listed in this function's safety section, and are the
+        // same as those required by `try_as_mut`.
         match unsafe { Self::try_as_mut(this) } {
             Some(inner_ref) => {
                 let new_prio = new_prio_mut(inner_ref);
-                unsafe { Self::from_prio_ptr(this.prio + new_prio, this.ptr) }
+                // SAFETY: `this.ptr` points to a valid `PqRcCell` because `this`
+                // is assumed to be valid at start of this function.
+                unsafe { Self::from_prio_and_ptr(this.prio + new_prio, this.ptr) }
             }
             None => {
                 let (new_prio, new_value) = new_prio_ref(this.deref());
