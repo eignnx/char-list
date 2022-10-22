@@ -63,17 +63,14 @@ impl From<&str> for CharList {
     }
 }
 
-// TODO: Is there an efficient way to impl From<String> for FrontString?
+// TODO: Is there an EFFICIENT way to impl From<String> for FrontString?
 // See this issue: https://github.com/eignnx/char-list/issues/1
-//
-// impl From<String> for CharList {
-//     fn from(string: String) -> Self {
-//         let len = string.as_bytes().len();
-//         Self {
-//             data: PqRc::new_from(string, len),
-//         }
-//     }
-// }
+impl From<String> for CharList {
+    fn from(string: String) -> Self {
+        let slice: &str = string.as_ref();
+        slice.into()
+    }
+}
 
 impl fmt::Debug for CharList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
