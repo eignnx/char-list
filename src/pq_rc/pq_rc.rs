@@ -62,6 +62,7 @@ where
         this.prio
     }
 
+    #[allow(dead_code)]
     pub fn ref_count(this: &Self) -> usize {
         PqRcCell::ref_count(this.cell_ref())
     }
