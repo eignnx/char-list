@@ -1,5 +1,10 @@
 use core::fmt;
-use std::{alloc::Layout, marker::PhantomData, ops::Deref, ptr::NonNull};
+use std::{
+    alloc::Layout,
+    marker::PhantomData,
+    ops::{Add, Deref},
+    ptr::NonNull,
+};
 
 use super::pq_rc_cell::PqRcCell;
 
@@ -12,7 +17,10 @@ pub struct PqRc<T, Priority: Ord + Copy> {
     _p_marker: PhantomData<Priority>,
 }
 
-impl<T, Priority: Ord + Copy> PqRc<T, Priority> {
+impl<T, Priority> PqRc<T, Priority>
+where
+    Priority: Ord + Copy + Add<Output = Priority>,
+{
     pub fn new(t: T, prio: Priority) -> Self {
         let layout = Layout::new::<PqRcCell<T, Priority>>();
         let ptr = unsafe { std::alloc::alloc(layout) };
@@ -97,11 +105,11 @@ impl<T, Priority: Ord + Copy> PqRc<T, Priority> {
         match unsafe { Self::try_as_mut(this) } {
             Some(inner_ref) => {
                 let new_prio = new_prio_mut(inner_ref);
-                unsafe { Self::from_prio_ptr(new_prio, this.ptr) }
+                unsafe { Self::from_prio_ptr(this.prio + new_prio, this.ptr) }
             }
             None => {
                 let (new_prio, new_value) = new_prio_ref(this.deref());
-                Self::new(new_value, new_prio)
+                Self::new(new_value, this.prio + new_prio)
             }
         }
     }
@@ -133,7 +141,10 @@ impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
     }
 }
 
-impl<T, Priority: Ord + Copy> Deref for PqRc<T, Priority> {
+impl<T, Priority> Deref for PqRc<T, Priority>
+where
+    Priority: Ord + Copy + Add<Output = Priority>,
+{
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -143,7 +154,7 @@ impl<T, Priority: Ord + Copy> Deref for PqRc<T, Priority> {
 
 impl<U, T, Priority> PartialEq<U> for PqRc<T, Priority>
 where
-    Priority: Ord + Copy,
+    Priority: Ord + Copy + Add<Output = Priority>,
     T: PartialEq<U>,
 {
     fn eq(&self, other: &U) -> bool {
@@ -151,8 +162,9 @@ where
     }
 }
 
-impl<T, Priority: Ord + Copy> fmt::Debug for PqRc<T, Priority>
+impl<T, Priority> fmt::Debug for PqRc<T, Priority>
 where
+    Priority: Ord + Copy + Add<Output = Priority>,
     T: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -160,8 +172,9 @@ where
     }
 }
 
-impl<T, Priority: Ord + Copy> fmt::Display for PqRc<T, Priority>
+impl<T, Priority> fmt::Display for PqRc<T, Priority>
 where
+    Priority: Ord + Copy + Add<Output = Priority>,
     T: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
