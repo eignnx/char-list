@@ -1,0 +1,56 @@
+digraph structs {
+    
+    bgcolor = "#1f1a30";
+    pad=0.2;
+
+    node [
+        shape = record;
+        color = orange;
+        fontcolor = "#ffc4b9";
+        fontname = "sans-serif";
+        style = "bold";
+    ];
+
+
+    edge [
+        color = "#ffc4b9";
+        style=bold;
+    ];
+
+    a [label = "{{priority: 2} | {<ptr> ptr: *}}"; xlabel="a"];
+    a -> buffer2:a:nw [style = "dotted,bold";];
+    a:ptr:e -> cell2:priorities:n;
+    
+    s3 [label = "{{priority: 2} | {<ptr> ptr: *}}"; xlabel="yz"];
+    s3 -> buffer:y:nw [style = "dotted,bold";];
+    s3:ptr:e -> cell:priorities:n;
+    
+    s4 [label = "{{priority: 0} | {<ptr> ptr: *}}"; xlabel="empty"];
+    s4 -> buffer:z:e [style = "dotted,bold";];
+    s4:ptr:e -> cell:priorities:n;
+    
+    cell [label = "{{<priorities> priorities: *}|{len: 2}|{cap: 8}|{<ptr> ptr: *}}";];
+    cell:ptr:e -> buffer:start:nw;
+    cell:priorities:e -> priorities;
+    
+    priorities [shape = none;label = <
+        <table>
+        <tr><td>priority</td><td>count</td></tr>
+        <tr><td>2</td><td>1</td></tr>
+        <tr><td>0</td><td>1</td></tr>
+        </table>>;];
+
+    buffer [label = "<start> _| _| _|<v> _|<w> _|<x> _|<y> y| <z> z";];
+
+    cell2 [label = "{{<priorities> priorities: *}|{len: 2}|{cap: 4}|{<ptr> ptr: *}}";];
+    cell2:ptr:e -> buffer2:start:nw;
+    cell2:priorities:e -> priorities2;
+    
+    priorities2 [shape = none;label = <
+        <table>
+        <tr><td>priority</td><td>count</td></tr>
+        <tr><td>1</td><td>1</td></tr>
+        </table>>;];
+    
+    buffer2 [label = "<start> _|_|_| <a> a";];
+}
