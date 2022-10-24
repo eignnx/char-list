@@ -5,6 +5,7 @@ edition = "2021"
 
 description = "An efficient string type with the same API as a linked-list of characters."
 license = "MIT"
+repository = "https://github.com/eignnx/char-list"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
