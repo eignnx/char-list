@@ -19,6 +19,10 @@ impl CharList {
         PqRc::priority(&self.data)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: PqRc::new(FrontString::with_capacity(capacity), 0),
@@ -44,8 +48,39 @@ impl CharList {
         }
     }
 
-    pub fn car_cdr(&self) -> (char, Self) {
-        todo!()
+    pub fn car_cdr(&self) -> Option<(char, Self)> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let ch = self
+            .as_ref()
+            .chars()
+            .next()
+            .expect("guard at top of fn ensures non-empty string");
+
+        let pq_rc = PqRc::clone_with_priority(&self.data, self.len() - ch.len_utf8());
+        let cl = Self { data: pq_rc };
+
+        Some((ch, cl))
+    }
+}
+
+impl Drop for CharList {
+    fn drop(&mut self) {
+        if let Some(front_string) = unsafe { PqRc::try_as_mut(&self.data) } {
+            if PqRc::uniquely_highest_priority(&self.data) {
+                if let Some(next_highest) = PqRc::second_highest_priority(&self.data) {
+                    let mut to_pop = self.len() - next_highest;
+                    while to_pop != 0 {
+                        let ch = front_string
+                            .pop_char_front()
+                            .expect("non-empty since we're in `if let Some` case");
+                        to_pop -= ch.len_utf8();
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -96,3 +131,41 @@ where
 }
 
 impl Eq for CharList {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pq_rc::PqRc;
+    use assert2::{assert, let_assert};
+
+    #[test]
+    fn mem_test_cdr_down() {
+        let s3 = CharList::from("abc");
+
+        assert!(PqRc::inner(&s3.data).len() == 3);
+
+        let_assert!(Some((a, s2)) = s3.car_cdr());
+        assert!(a == 'a');
+        assert!(s2 == "bc");
+
+        assert!(PqRc::inner(&s3.data).len() == 3);
+
+        let_assert!(Some((b, s1)) = s2.car_cdr());
+        assert!(b == 'b');
+        assert!(s1 == "c");
+
+        drop(s3);
+        assert!(PqRc::inner(&s1.data).len() == 2);
+
+        let_assert!(Some((c, s0)) = s1.car_cdr());
+        assert!(c == 'c');
+        assert!(s0.is_empty());
+        assert!(s0 == "");
+
+        assert!(s0.car_cdr() == None);
+
+        drop(s2);
+        drop(s1);
+        assert!(PqRc::inner(&s0.data).len() == 0);
+    }
+}

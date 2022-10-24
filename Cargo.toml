@@ -10,3 +10,4 @@ front-vec = "0.0.2"
 
 [dev-dependencies]
 maybe-debug = "0.1.0"
+assert2 = "0.3.6"

@@ -2,6 +2,7 @@ use core::fmt;
 use std::{
     alloc::Layout,
     marker::PhantomData,
+    num::NonZeroUsize,
     ops::{Add, Deref},
     ptr::NonNull,
 };
@@ -80,6 +81,13 @@ where
         this.prio
     }
 
+    /// Returns true if `this` is the only `PqRc` that has max priority.
+    pub fn uniquely_highest_priority(this: &PqRc<T, Priority>) -> bool {
+        let cell = Self::cell_ref(this);
+        let (&max_prio, &count) = PqRcCell::max_priority_and_count(cell);
+        Self::priority(this) == max_prio && count == NonZeroUsize::MIN
+    }
+
     #[allow(dead_code)]
     pub fn ref_count(this: &Self) -> usize {
         PqRcCell::ref_count(this.cell_ref())
@@ -135,21 +143,39 @@ where
             }
         }
     }
-}
 
-impl<T, Priority: Ord + Copy> Clone for PqRc<T, Priority> {
-    fn clone(&self) -> Self {
+    /// Create a new pointer to the shared inner `T` but with a new priority.
+    pub fn clone_with_priority(this: &Self, new_prio: Priority) -> PqRc<T, Priority> {
         let mut new = Self {
-            prio: self.prio,
-            ptr: self.ptr,
+            prio: new_prio,
+            ptr: this.ptr,
             _t_marker: Default::default(),
             _p_marker: Default::default(),
         };
 
         let cell = unsafe { new.ptr.as_mut() };
-        cell.incr_count(self.prio);
+        cell.incr_count(new.prio);
 
         new
+    }
+
+    pub fn second_highest_priority(this: &PqRc<T, Priority>) -> Option<Priority> {
+        let cell = this.cell_ref();
+        PqRcCell::second_highest_priority(cell)
+    }
+
+    #[cfg(test)]
+    pub fn inner(this: &Self) -> &T {
+        PqRcCell::inner(this.cell_ref())
+    }
+}
+
+impl<T, Priority> Clone for PqRc<T, Priority>
+where
+    Priority: Ord + Copy + Add<Output = Priority>,
+{
+    fn clone(&self) -> Self {
+        PqRc::clone_with_priority(self, self.prio)
     }
 }
 

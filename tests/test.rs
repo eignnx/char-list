@@ -1,3 +1,5 @@
+use assert2::{assert, check, let_assert};
+
 use char_list::CharList;
 
 #[test]
@@ -8,13 +10,13 @@ fn construct_destruct() {
 #[test]
 fn construct_cmp() {
     let s = CharList::new();
-    assert_eq!(s, "");
+    assert!(s == "");
 }
 
 #[test]
 fn cons_1() {
     let s = CharList::new().cons('a');
-    assert_eq!(s, "a");
+    assert!(s == "a");
 }
 
 #[test]
@@ -23,14 +25,14 @@ fn cons_2() {
     let s1 = s0.cons('z');
     let s2 = s1.cons('y');
     let s3 = s2.cons('x');
-    assert_eq!(s0.len(), 0);
-    assert_eq!(s0, "");
-    assert_eq!(s1.len(), 1);
-    assert_eq!(s1, "z");
-    assert_eq!(s2.len(), 2);
-    assert_eq!(s2, "yz");
-    assert_eq!(s3.len(), 3);
-    assert_eq!(s3, "xyz");
+    assert!(s0.len() == 0);
+    assert!(s0 == "");
+    assert!(s1.len() == 1);
+    assert!(s1 == "z");
+    assert!(s2.len() == 2);
+    assert!(s2 == "yz");
+    assert!(s3.len() == 3);
+    assert!(s3 == "xyz");
 }
 
 #[test]
@@ -40,12 +42,40 @@ fn cons_hirigana() {
     for ch in entire.chars().rev() {
         s = s.cons(ch);
     }
-    assert_eq!(s, entire);
+    assert!(s == entire);
 }
 
 #[test]
 fn from_str() {
     let text = "いろはにほへとちりぬるを";
     let s = CharList::from(text);
-    assert_eq!(s, text);
+    assert!(s == text);
+}
+
+#[test]
+fn car_cdr_simple() {
+    let s = CharList::from("a");
+    let_assert!(Some((head, tail)) = s.car_cdr(), "s = {s:?}");
+    check!(head == 'a');
+    check!(tail == "");
+}
+
+#[test]
+fn car_cdr_long() {
+    let abc = CharList::from("abc");
+
+    let_assert!(Some((a, bc)) = abc.car_cdr());
+    assert!(a == 'a');
+    assert!(bc == "bc");
+
+    let_assert!(Some((b, c)) = bc.car_cdr());
+    assert!(b == 'b');
+    assert!(c == "c");
+
+    let_assert!(Some((c_char, empty)) = c.car_cdr(), "c = {c:?}");
+    assert!(c_char == 'c');
+    assert!(empty.is_empty());
+    assert!(empty == "");
+
+    assert!(empty.car_cdr() == None);
 }

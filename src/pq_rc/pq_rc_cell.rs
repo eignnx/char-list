@@ -14,8 +14,14 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         Self { priorities, value }
     }
 
+    pub fn max_priority_and_count(this: &Self) -> (&Priority, &Count) {
+        this.priorities
+            .last_key_value()
+            .expect("priorities cannot be empty if `this` exists")
+    }
+
     pub fn max_priority(this: &Self) -> Priority {
-        let (&max_proi, _) = this.priorities.last_key_value().unwrap();
+        let (&max_proi, _) = Self::max_priority_and_count(this);
         max_proi
     }
 
@@ -60,6 +66,19 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
             .iter()
             .map(|(_, &count)| usize::from(count))
             .sum()
+    }
+
+    pub fn second_highest_priority(this: &PqRcCell<T, Priority>) -> Option<Priority> {
+        let snd_idx = 1;
+        this.priorities
+            .iter()
+            .nth_back(snd_idx)
+            .map(|(&prio, _)| prio)
+    }
+
+    #[cfg(test)]
+    pub fn inner(this: &Self) -> &T {
+        &this.value
     }
 }
 
