@@ -30,18 +30,24 @@ impl CharList {
     }
 
     pub fn cons(&self, ch: char) -> Self {
+        let mut buf = [0u8; 4];
+        self.push_str_front(ch.encode_utf8(&mut buf))
+    }
+
+    pub fn push_str_front(&self, s: impl AsRef<str>) -> Self {
+        let s = s.as_ref();
         Self {
             data: unsafe {
                 PqRc::mutate_or_clone(
                     &self.data,
                     |string_mut| {
-                        string_mut.push_char_front(ch);
-                        ch.len_utf8()
+                        string_mut.push_str_front(s);
+                        s.len()
                     },
                     |_string_ref| {
                         let mut new_string = FrontString::from(self.as_ref());
-                        new_string.push_char_front(ch);
-                        (ch.len_utf8(), new_string)
+                        new_string.push_str_front(s);
+                        (s.len(), new_string)
                     },
                 )
             },
@@ -138,24 +144,28 @@ mod tests {
     use crate::pq_rc::PqRc;
     use assert2::{assert, let_assert};
 
+    fn underlying(cl: &CharList) -> &FrontString {
+        PqRc::inner(&cl.data)
+    }
+
     #[test]
     fn mem_test_cdr_down() {
         let s3 = CharList::from("abc");
 
-        assert!(PqRc::inner(&s3.data).len() == 3);
+        assert!(underlying(&s3).len() == 3);
 
         let_assert!(Some((a, s2)) = s3.car_cdr());
         assert!(a == 'a');
         assert!(s2 == "bc");
 
-        assert!(PqRc::inner(&s3.data).len() == 3);
+        assert!(underlying(&s3).len() == 3);
 
         let_assert!(Some((b, s1)) = s2.car_cdr());
         assert!(b == 'b');
         assert!(s1 == "c");
 
         drop(s3);
-        assert!(PqRc::inner(&s1.data).len() == 2);
+        assert!(underlying(&s1).len() == 2);
 
         let_assert!(Some((c, s0)) = s1.car_cdr());
         assert!(c == 'c');
@@ -166,6 +176,30 @@ mod tests {
 
         drop(s2);
         drop(s1);
-        assert!(PqRc::inner(&s0.data).len() == 0);
+        assert!(underlying(&s0).len() == 0);
+    }
+
+    #[test]
+    fn mem_test_cons_up() {
+        let empty = CharList::new();
+        assert!(empty.is_empty());
+        assert!(underlying(&empty) == &"");
+
+        let icon = empty.push_str_front("icon");
+        assert!(icon == "icon");
+        assert!(underlying(&empty) == &"icon");
+
+        let nomicon = icon.push_str_front("nom");
+        assert!(nomicon == "nomicon");
+        assert!(underlying(&empty) == &"nomicon");
+
+        let rustonomicon = nomicon.push_str_front("rusto");
+        assert!(rustonomicon == "rustonomicon");
+        assert!(underlying(&empty) == &"rustonomicon");
+
+        let nominomicon = nomicon.push_str_front("nomi");
+        assert!(nominomicon == "nominomicon");
+        assert!(underlying(&empty) == &"rustonomicon");
+        assert!(underlying(&nominomicon) == &"nominomicon");
     }
 }

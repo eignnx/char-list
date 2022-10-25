@@ -15,7 +15,7 @@
 //! ### `CharList == PqRc<FrontString>`
 //! This crate implements a type called `PqRc` (soon to be moved to its own crate) which stands for "Priority Queue Reference Counted". It's a shared pointer type like `Rc`, but while `Rc<T>` points to a `RcBox<T>` with approximately this layout:
 //!
-//! ```rust
+//! ```ignore
 //! struct Rc<T> {
 //!     ptr: *mut RcBox<T>,
 //! }
@@ -29,7 +29,7 @@
 //!
 //! a `PqRc` points to a `PqRcCell` which looks approximately like this:
 //!
-//! ```rust
+//! ```ignore
 //! struct PqRc<T, Priority> {
 //!     priority: Priority,
 //!     ptr: *mut PqRcCell<T, Priority>,
@@ -51,7 +51,7 @@
 //!
 //! Consider this code:
 //!
-//! ```rust
+//! ```ignore
 //! let empty = CharList::new();
 //! let yz = empty.cons('z').cons('y');
 //! let wxyz_1 = yz.cons('x').cons('w');
@@ -64,7 +64,7 @@
 //!
 //! #### Let's `cons`!
 //!
-//! ```rust
+//! ```ignore
 //! let vwxyz = wxyz_1.cons('v');
 //! ```
 //!
@@ -80,7 +80,7 @@
 //!
 //! Ok now what happens if we `drop` the longest three strings?
 //!
-//! ```rust
+//! ```ignore
 //! drop(vwxyz);
 //! drop(wxyz_1);
 //! drop(wxyz_2);
@@ -94,7 +94,7 @@
 //!
 //! Here's a problem though. What if we want to `cons` the character `'a'` onto the front of `empty`?
 //!
-//! ```rust
+//! ```ignore
 //! let a = empty.cons('a');
 //! ```
 //!
