@@ -13,12 +13,28 @@ use crate::pq_rc::PqRc;
 
 type Len = usize;
 
+/// An efficient string type with the same API as a linked-list of characters.
+///
+/// Specifically, a `CharList` supports the following two methods:
+/// 1. [`cons`](crate::CharList::cons) which immutably prepends a character,
+///    and
+/// 2. [`car_cdr`](crate::CharList::car_cdr) which immutably splits `self`
+///    into its first character and everything except the first character.
 pub struct CharList {
     data: PqRc<FrontString, Len>,
 }
 
 impl CharList {
     /// Creates an empty `CharList`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let empty = CharList::new();
+    /// assert!(empty.len() == 0);
+    /// ```
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
