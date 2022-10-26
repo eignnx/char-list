@@ -130,7 +130,7 @@
 //!
 //! Here's a problem though. What if we want to `cons` the character `'b'` onto the front of `icon`?
 //!
-//! ```ignore
+//! ```
 //! # use char_list::CharList;
 //! # use assert2::assert;
 //! # let icon = CharList::from("icon");

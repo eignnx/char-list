@@ -221,6 +221,14 @@ impl Drop for CharList {
     }
 }
 
+impl Clone for CharList {
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+        }
+    }
+}
+
 impl AsRef<str> for CharList {
     fn as_ref(&self) -> &str {
         &self.data[self.data.len() - self.len()..]
