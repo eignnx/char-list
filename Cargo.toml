@@ -3,7 +3,7 @@ name = "char-list"
 version = "0.0.1"
 edition = "2021"
 
-description = "An efficient string type with the same API as a linked-list of characters."
+description = "A persistent string type with the same API as a linked-list of characters."
 license = "MIT"
 repository = "https://github.com/eignnx/char-list"
 
@@ -11,7 +11,16 @@ repository = "https://github.com/eignnx/char-list"
 
 [dependencies]
 front-vec = "0.0.2"
+embed-doc-image = "0.1.4"
 
 [dev-dependencies]
 maybe-debug = "0.1.0"
 assert2 = "0.3.6"
+
+[features]
+doc-images = []
+
+[package.metadata.docs.rs]
+# docs.rs uses a nightly compiler, so by instructing it to use our `doc-images` feature we
+# ensure that it will render any images that we may have in inner attribute documentation.
+features = ["doc-images"]

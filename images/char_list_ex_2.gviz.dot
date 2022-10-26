@@ -1,0 +1,107 @@
+digraph structs {
+    
+    bgcolor = "#1f1a30";
+    fontname = "sans-serif";
+    pad=0.25;
+    layout=dot;
+    concentrate=true;
+
+    graph [
+        nodesep="0.75";
+        ranksep="0.4 equally";
+    ];
+
+    node [
+        fontname = "sans-serif";
+        shape = record;
+        color = orange;
+        fontcolor = "#ffc4b9";
+        style = "bold";
+    ];
+
+
+    edge [
+        color="#ffc4b9";
+        style=bold;
+    ];
+
+    subgraph cluster_stack {
+        color=none;
+        fontname="Courier-Bold";
+        fontcolor="#ffc4b9";
+        fontsize=13;
+        labeljust=l;
+
+        subgraph cluster_s5 {
+            label="the_book";
+            s5 [label = "{{len: 16} | {<ptr> ptr: *}}";];
+        }
+
+        subgraph cluster_s4 {
+            label="rustonomicon2";
+            s4 [label = "{{len: 12} | {<ptr> ptr: *}}";];
+        }
+
+        subgraph cluster_s3 {
+            label="rustonomicon";
+            s3 [label = "{{len: 12} | {<ptr> ptr: *}}"; ];
+        }
+
+        subgraph cluster_s2 {
+            label="nomicon";
+            s2 [label = "{{len: 7} | {<ptr> ptr: *}}"; ];
+        }
+
+        subgraph cluster_s1 {
+            label="icon";
+            s1 [label = "{{len: 4} | {<ptr> ptr: *}}";];
+        }
+    }
+
+    subgraph cluster_phantom_edges {
+        color=none;
+        edge [
+            style="dashed";
+            penwidth=2;
+            color="#ee7ce451";
+            arrowhead=empty;
+        ];
+
+        s1 -> buffer:i:nw; 
+        s2 -> buffer:n:nw;
+        s3 -> buffer:r:nw;
+        s4 -> buffer:r:nw;
+        s5 -> buffer:start:nw;
+    }
+
+    {
+        s1:ptr:s -> cell:priorities:n;
+        s2:ptr:s -> cell:priorities:n;
+        s3:ptr:s -> cell:priorities:n;
+        s4:ptr:s -> cell:priorities:n;
+        s5:ptr:s -> cell:priorities:n;
+    }
+    
+    cell [label = "{{<priorities> refs: *}|{len: 16}|{cap: 16}|{<ptr> ptr: *}}";];
+    cell:ptr:w -> buffer:start:nw;
+    cell:priorities -> priorities;
+    
+    priorities [
+        shape = none;
+        label = <
+            <table>
+                <tr><td>len</td><td>count</td></tr>
+                <tr><td>16</td><td>1</td></tr>
+                <tr><td>12</td><td>2</td></tr>
+                <tr><td>7</td><td>1</td></tr>
+                <tr><td>4</td><td>1</td></tr>
+            </table>
+        >
+    ];
+
+    
+    buffer [
+        label = "<start> t|h|e| |<r> r|u|s|t|o|<n> n|o|m|<i> i|c|o|n";
+        fontname="Courier-Bold"
+    ];
+}

@@ -1,0 +1,109 @@
+digraph structs {
+    
+    bgcolor = "#1f1a30";
+    fontname = "sans-serif";
+    pad=0.25;
+    layout=dot;
+    concentrate=true;
+
+    graph [
+        nodesep="0.75";
+        ranksep="0.4 equally";
+    ];
+
+    node [
+        fontname = "sans-serif";
+        shape = record;
+        color = orange;
+        fontcolor = "#ffc4b9";
+        style = "bold";
+    ];
+
+
+    edge [
+        color="#ffc4b9";
+        style=bold;
+    ];
+
+    {
+        color=none;
+        fontname="Courier-Bold";
+        fontcolor="#ffc4b9";
+        fontsize=13;
+        labeljust=l;
+
+        subgraph cluster_s2 {
+            label="nomicon";
+            s2 [label = "{{len: 7} | {<ptr> ptr: *}}"; ];
+        }
+
+        subgraph cluster_s1 {
+            label="icon";
+            s1 [label = "{{len: 4} | {<ptr> ptr: *}}";];
+        }
+
+        subgraph cluster_janelle {
+            label="janelle";
+            bicon [label = "{{len: 5} | {<ptr> ptr: *}}";];
+        }
+    }
+
+    {
+        color=none;
+        edge [
+            style="dashed";
+            penwidth=2;
+            color="#ee7ce451";
+            arrowhead=empty;
+        ];
+
+        s1 -> buffer:i:nw; 
+        s2 -> buffer:n:nw;
+        bicon -> buffer2:start:nw;
+    }
+
+    {
+        s1:ptr:s -> cell:priorities:n;
+        s2:ptr:s -> cell:priorities:n;
+        bicon:ptr:s -> cell2:priorities:n;
+    }
+    
+    cell [label = "{{<priorities> refs: *}|{len: 7}|{cap: 16}|{<ptr> ptr: *}}";];
+    cell:ptr:w -> buffer:start:nw;
+    cell:priorities -> priorities;
+
+    cell2 [label = "{{<priorities> refs: *}|{len: 5}|{cap: 5}|{<ptr> ptr: *}}";];
+    cell2:ptr:w -> buffer2:start:nw;
+    cell2:priorities -> priorities2;
+    
+    priorities [
+        shape = none;
+        label = <
+            <table>
+                <tr><td>len</td><td>count</td></tr>
+                <tr><td>7</td><td>1</td></tr>
+                <tr><td>4</td><td>1</td></tr>
+            </table>
+        >
+    ];
+
+    priorities2 [
+        shape = none;
+        label = <
+            <table>
+                <tr><td>len</td><td>count</td></tr>
+                <tr><td>5</td><td>1</td></tr>
+            </table>
+        >
+    ];
+    
+    buffer [
+        label = "<start> _|_|_|_|<r> _|_|_|_|_|<n> n|o|m|<i> i|c|o|n";
+        fontname="Courier-Bold"
+    ];
+    
+    buffer2 [
+        label = "<start> b|i|c|o|n";
+        fontname="Courier-Bold"
+    ];
+}
