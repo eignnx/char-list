@@ -164,7 +164,6 @@ where
         PqRcCell::second_highest_priority(cell)
     }
 
-    #[cfg(test)]
     pub fn inner(this: &Self) -> &T {
         PqRcCell::inner(this.cell_ref())
     }

@@ -76,7 +76,6 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
             .map(|(&prio, _)| prio)
     }
 
-    #[cfg(test)]
     pub fn inner(this: &Self) -> &T {
         &this.value
     }

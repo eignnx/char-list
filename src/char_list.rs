@@ -15,11 +15,22 @@ type Len = usize;
 
 /// An efficient string type with the same API as a linked-list of characters.
 ///
-/// Specifically, a `CharList` supports the following two methods:
-/// 1. [`cons`](crate::CharList::cons) which immutably prepends a character,
-///    and
+/// # Notable Methods
+/// 1. [`cons`](crate::CharList::cons) which immutably prepends a character
+///    ([`cons_str`](crate::CharList::cons_str) is also available), and
 /// 2. [`car_cdr`](crate::CharList::car_cdr) which immutably splits `self`
 ///    into its first character and everything except the first character.
+///
+/// # Note: `CharList: !Deref<Target=str>`
+/// This type specifically does **not** implement `Deref<Target=str>`. If you
+/// need a `&str`, use the [`as_str`](crate::CharList::as_str) method or `as_ref`.
+///
+/// Essentially, I don't want users to realize they need to call `cons` but
+/// only have a `&str`. Then the only way to proceed is to call `CharList::from`
+/// and allocate a **new** backing string.
+///
+/// This restriction may be relaxed in the future (let me know if you have a good
+/// argument for allowing this, I'm flexible 🙂).
 pub struct CharList {
     data: PqRc<FrontString, Len>,
 }
@@ -68,14 +79,11 @@ impl CharList {
         self.len() == 0
     }
 
-    pub fn chars(&self) -> std::str::Chars {
-        self.as_str().chars()
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            data: PqRc::new(FrontString::with_capacity(capacity), 0),
-        }
+    /// Extracts a string slice which references `self`'s entire view of the
+    /// underlying text.
+    pub fn as_str(&self) -> &str {
+        let entire_slice: &str = self.backing_string().as_ref();
+        &entire_slice[entire_slice.len() - self.len()..]
     }
 
     /// Creates a new [`CharList`] which is a copy of `self`, but with the
@@ -118,7 +126,7 @@ impl CharList {
                         s.len()
                     },
                     |_string_ref| {
-                        let mut new_string = FrontString::from(self.as_ref());
+                        let mut new_string = FrontString::from(self.as_str());
                         new_string.push_str_front(s);
                         (s.len(), new_string)
                     },
@@ -143,13 +151,14 @@ impl CharList {
     /// let empty = CharList::new();
     /// assert!(empty.car_cdr() == None);
     /// ```
+    #[track_caller]
     pub fn car_cdr(&self) -> Option<(char, Self)> {
         if self.is_empty() {
             return None;
         }
 
         let ch = self
-            .as_ref()
+            .as_str()
             .chars()
             .next()
             .expect("guard at top of fn ensures non-empty string");
@@ -160,10 +169,15 @@ impl CharList {
         Some((ch, cl))
     }
 
-    /// Extracts a string slice which references `self`'s entire view of the
-    /// underlying text.
-    pub fn as_str(&self) -> &str {
-        self.as_ref()
+    /// Returns an iterator over the characters in `self`.
+    pub fn chars(&self) -> std::str::Chars {
+        self.as_str().chars()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: PqRc::new(FrontString::with_capacity(capacity), 0),
+        }
     }
 
     pub fn from_utf8(vec: Vec<u8>) -> Result<Self, FromUtf8Error> {
@@ -201,6 +215,11 @@ impl CharList {
             data: PqRc::clone_with_priority(&self.data, sub.len()),
         })
     }
+
+    /// Get an immutable reference to the backing [`FrontString`](front_vec::FrontString).
+    pub fn backing_string(&self) -> &FrontString {
+        PqRc::inner(&self.data)
+    }
 }
 
 impl Drop for CharList {
@@ -229,12 +248,6 @@ impl Clone for CharList {
     }
 }
 
-impl AsRef<str> for CharList {
-    fn as_ref(&self) -> &str {
-        &self.data[self.data.len() - self.len()..]
-    }
-}
-
 impl From<&str> for CharList {
     fn from(s: &str) -> Self {
         Self {
@@ -254,14 +267,14 @@ impl From<String> for CharList {
 
 impl fmt::Debug for CharList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let slice: &str = self.as_ref();
+        let slice: &str = self.as_str();
         write!(f, "{slice:?}")
     }
 }
 
 impl fmt::Display for CharList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let slice: &str = self.as_ref();
+        let slice: &str = self.as_str();
         write!(f, "{slice}")
     }
 }
@@ -271,7 +284,7 @@ where
     S: AsRef<str>,
 {
     fn eq(&self, other: &S) -> bool {
-        self.as_ref() == other.as_ref()
+        self.as_str() == other.as_ref()
     }
 }
 
@@ -282,19 +295,19 @@ where
     S: AsRef<str>,
 {
     fn partial_cmp(&self, other: &S) -> Option<std::cmp::Ordering> {
-        self.as_ref().partial_cmp(other.as_ref())
+        self.as_str().partial_cmp(other.as_ref())
     }
 }
 
 impl Ord for CharList {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.as_ref().cmp(other.as_ref())
+        self.as_str().cmp(other.as_str())
     }
 }
 
 impl Hash for CharList {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state);
+        self.as_str().hash(state);
     }
 }
 
@@ -316,19 +329,25 @@ impl FromIterator<char> for CharList {
 impl Add<CharList> for CharList {
     type Output = CharList;
     fn add(self, rhs: CharList) -> Self::Output {
-        rhs.cons_str(self.as_ref())
+        rhs.cons_str(self.as_str())
     }
 }
 
 impl AddAssign<CharList> for String {
     fn add_assign(&mut self, rhs: CharList) {
-        self.push_str(rhs.as_ref())
+        self.push_str(rhs.as_str())
+    }
+}
+
+impl AsRef<str> for CharList {
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 
 impl Borrow<str> for CharList {
     fn borrow(&self) -> &str {
-        self.as_ref()
+        self.as_str()
     }
 }
 
