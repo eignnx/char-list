@@ -207,12 +207,41 @@ impl CharList {
     /// let informational_book = creepy_book.without_prefix("necro");
     /// assert!(informational_book == Some(CharList::from("nomicon")));
     /// ```
+    #[deprecated(since = "0.1.0", note = "use `CharList::split_prefix_suffix` instead")]
     pub fn without_prefix<'a, P>(&'a self, prefix: P) -> Option<Self>
     where
         P: Pattern<'a>,
     {
         self.as_str().strip_prefix(prefix).map(|sub| Self {
             data: PqRc::clone_with_priority(&self.data, sub.len()),
+        })
+    }
+
+    /// Separates `self` into a prefix (specified by the `Pattern` `prefix`) and
+    /// a suffix made of the remainder of the string.
+    ///
+    /// Notice that this function returns a pair containing two *different*
+    /// string types: a `&str` for the found prefix, and a `CharList` for the
+    /// suffix. The assumption is that the prefix (and the `CharList` which
+    /// holds onto that section of the string) will be dropped before the suffix
+    /// is dropped. This means, if possible, don't immediately create a new
+    /// `CharList` from the prefix as this will allocate a *copy* of the text
+    /// referenced by the prefix.
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let creepy_book = CharList::from("necronomicon");
+    /// let pair = creepy_book.split_prefix_suffix("necro");
+    /// assert!(pair == Some(("necro", CharList::from("nomicon"))));
+    /// ```
+    pub fn split_prefix_suffix<'a>(&'a self, prefix: impl Pattern<'a>) -> Option<(&'a str, Self)> {
+        self.as_str().strip_prefix(prefix).map(|sub| {
+            let cl = Self {
+                data: PqRc::clone_with_priority(&self.data, sub.len()),
+            };
+
+            (sub, cl)
         })
     }
 
