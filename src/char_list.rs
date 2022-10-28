@@ -86,6 +86,12 @@ impl CharList {
         &entire_slice[entire_slice.len() - self.len()..]
     }
 
+    /// Extracts a byte slice which references `self`'s entire view of the
+    /// underlying text.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.as_str().as_bytes()
+    }
+
     /// Creates a new [`CharList`] which is a copy of `self`, but with the
     /// given character added onto the front.
     ///
@@ -174,6 +180,8 @@ impl CharList {
         self.as_str().chars()
     }
 
+    /// Creates a `CharList` whose backing `FrontString` begins with the
+    /// capacity specified.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: PqRc::new(FrontString::with_capacity(capacity), 0),
@@ -217,8 +225,14 @@ impl CharList {
         })
     }
 
-    /// Separates `self` into a prefix (specified by the `Pattern` `prefix`) and
+    /// Separates `self` into a prefix (described by the `Pattern` `prefix`) and
     /// a suffix made of the remainder of the string.
+    ///
+    /// The `Pattern` `prefix` could be:
+    /// * a `&str` giving an exact prefix to match,
+    /// * a `char` giving an exact character prefix to match,
+    /// * a predicate of type `FnMut(char) -> bool` which returns true for all
+    ///   characters in the prefix.
     ///
     /// Notice that this function returns a pair containing two *different*
     /// string types: a `&str` for the found prefix, and a `CharList` for the
@@ -232,23 +246,136 @@ impl CharList {
     /// # use char_list::CharList;
     /// # use assert2::assert;
     /// let creepy_book = CharList::from("necronomicon");
-    /// let pair = creepy_book.split_prefix_suffix("necro");
-    /// assert!(pair == Some(("necro", CharList::from("nomicon"))));
+    /// let pair = creepy_book.split_after_prefix("necro");
+    /// assert!(pair == ("necro", CharList::from("nomicon")));
     /// ```
-    pub fn split_prefix_suffix<'a>(&'a self, prefix: impl Pattern<'a>) -> Option<(&'a str, Self)> {
-        self.as_str().strip_prefix(prefix).map(|sub| {
-            let cl = Self {
-                data: PqRc::clone_with_priority(&self.data, sub.len()),
-            };
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let words = CharList::from("hello world");
+    /// let (hello, rest) = words.split_after_prefix(char::is_alphabetic);
+    /// assert!(hello == "hello");
+    /// assert!(rest == " world");
+    /// ```
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let numbers = CharList::from("1253 39271 4542");
+    /// let (first_word, rest) = numbers.split_after_prefix(char::is_alphabetic);
+    /// assert!(first_word.is_empty());
+    /// assert!(rest == numbers);
+    /// ```
+    pub fn split_after_prefix<'a>(&'a self, prefix: impl Pattern<'a>) -> (&'a str, Self) {
+        let remainder = self.as_str().trim_start_matches(prefix);
+        self.split_at(self.len() - remainder.len())
+    }
 
-            (sub, cl)
-        })
+    pub fn split_after_nonempty_prefix<'a>(
+        &'a self,
+        prefix: impl Pattern<'a>,
+    ) -> Option<(&'a str, Self)> {
+        use std::ops::Not;
+        let (prefix, suffix) = self.split_after_prefix(prefix);
+        prefix.is_empty().not().then_some((prefix, suffix))
+    }
+
+    /// For the argument `idx`, returns the pair `(prefix, suffix)` where
+    /// `prefix` ends just before byte-index `idx`, and `suffix` begins at
+    /// byte-index `idx`.
+    ///
+    /// The `String` created from `format!("{prefix}{suffix}")` will always be
+    /// equal to `self`.
+    ///
+    /// Guarunteed not to allocate a new underlying `FrontString`.
+    ///
+    /// # Panics
+    /// A panic will occur if:
+    /// * `start_idx` is greater than `self.len()`, or
+    /// * `start_idx` indexes to an invalid `char` boundary.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let rustonomicon = CharList::from("rustonomicon");
+    /// let ptr_before = rustonomicon.backing_string().as_ptr();
+    ///
+    /// let idx = "rusto".len();
+    /// let (rusto, nomicon) = rustonomicon.split_at(idx);
+    /// assert!(rusto == "rusto" && nomicon == "nomicon");
+    ///
+    /// // The underlying buffer has NOT been reallocated!
+    /// let ptr_after = nomicon.backing_string().as_ptr();
+    /// assert!(ptr_before == ptr_after);
+    /// ```
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let word = CharList::from("word");
+    /// let (empty, suffix) = word.split_at(0);
+    /// assert!(empty.is_empty());
+    /// assert!(suffix == word);
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let word = CharList::from("kitty");
+    /// let _ = word.split_at(1000); // Panic!
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let pride_bytes: Vec<u8> = [
+    ///     0xF0, 0x9F, 0x8F, 0xB3, // 1st char: 🏳
+    ///     //          ^^^^ We're gonna try to begin the suffix here 😈
+    ///     0xEF, 0xB8, 0x8F,       // 2nd char: ◌️
+    ///     0xE2, 0x80, 0x8D,       // 3rd char: <Zero Width Joiner>
+    ///     0xF0, 0x9F, 0x8C, 0x88, // 4th char: 🌈
+    /// ].to_vec();
+    ///
+    /// let pride = CharList::from_utf8(pride_bytes).expect("bytes are valid utf8");
+    /// assert!(pride == "🏳️‍🌈");
+    ///
+    /// let _ = pride.split_at(2); // Panic!
+    /// ```
+    #[track_caller]
+    pub fn split_at(&self, split_index: usize) -> (&str, CharList) {
+        if split_index > self.len() {
+            panic!("given range begins beyond end of the `CharList`");
+        }
+
+        if !self.as_str().is_char_boundary(split_index) {
+            panic!("given range does not begin on a valid char boundary");
+        }
+
+        let prefix = &self.as_str()[..split_index];
+
+        let suffix = Self {
+            data: PqRc::clone_with_priority(&self.data, self.len() - split_index),
+        };
+
+        (prefix, suffix)
     }
 
     /// Get an immutable reference to the backing [`FrontString`](front_vec::FrontString).
     pub fn backing_string(&self) -> &FrontString {
         PqRc::inner(&self.data)
     }
+
+    // TODO: implement this method
+    // pub fn try_as_mut(&mut self) -> Option<&mut str> {
+    //     let mut_string = unsafe { PqRc::try_as_mut(&self.data)? };
+    //     let mut_entire_slice: &mut str = mut_string.as_mut(); // TODO: impl `AsMut` for `FrontString`
+    //     let from = todo!();
+    //     let till = todo!();
+    //     Some(&mut mut_entire_slice[from..till])
+    // }
 }
 
 impl Drop for CharList {
@@ -448,5 +575,102 @@ mod tests {
         assert!(nominomicon == "nominomicon");
         assert!(underlying(&empty) == &"rustonomicon");
         assert!(underlying(&nominomicon) == &"nominomicon");
+    }
+}
+
+#[cfg(test)]
+mod parser_use_case {
+    use super::*;
+    use assert2::assert;
+
+    fn character(target: char) -> impl Fn(&CharList) -> Option<(char, CharList)> {
+        move |i| {
+            let (ch, i) = i.car_cdr()?;
+            (ch == target).then_some((ch, i))
+        }
+    }
+
+    fn many0<T>(
+        p: impl Fn(&CharList) -> Option<(T, CharList)>,
+    ) -> impl Fn(&CharList) -> Option<(Vec<T>, CharList)> {
+        move |i| {
+            let mut i = i.clone();
+            let mut ts = vec![];
+
+            while !i.is_empty() {
+                match p(&i) {
+                    Some((t, rem)) => {
+                        ts.push(t);
+                        i = rem;
+                    }
+                    None => break,
+                }
+            }
+
+            Some((ts, i))
+        }
+    }
+
+    fn or<T, P1, P2>(p1: P1, p2: P2) -> impl Fn(&CharList) -> Option<(T, CharList)>
+    where
+        P1: Fn(&CharList) -> Option<(T, CharList)>,
+        P2: Fn(&CharList) -> Option<(T, CharList)>,
+    {
+        move |i| p1(i).or_else(|| p2(i))
+    }
+
+    fn ws0(i: &CharList) -> Option<((), CharList)> {
+        let (_, i) = many0(character(' '))(i)?;
+        Some(((), i))
+    }
+
+    fn ident(i: &CharList) -> Option<(Token, CharList)> {
+        let (ident, i) = i.split_after_nonempty_prefix(char::is_alphabetic)?;
+        Some((Token::Ident(ident.to_owned()), i))
+    }
+
+    fn nat(i: &CharList) -> Option<(Token, CharList)> {
+        let (n, i) = i.split_after_nonempty_prefix(char::is_numeric)?;
+        let n = n.parse::<u64>().ok()?;
+        Some((Token::Nat(n), i))
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Token {
+        Ident(String),
+        Nat(u64),
+    }
+
+    #[test]
+    fn little_parser() {
+        use crate::pq_rc::pq_rc_cell::new_counts::{new_count, reset_new_count};
+
+        reset_new_count();
+
+        let i = CharList::from("one 2 three 456");
+
+        let words = many0(|i: &CharList| {
+            let (tok, i) = or(ident, nat)(i)?;
+            let (_, i) = ws0(&i)?;
+            Some((tok, i))
+        });
+
+        let (w, i) = words(&i).unwrap();
+
+        assert!(i == "");
+
+        assert!(
+            w == vec![
+                Token::Ident("one".to_owned()),
+                Token::Nat(2),
+                Token::Ident("three".to_owned()),
+                Token::Nat(456),
+            ]
+        );
+
+        // Only one call to `PqRcCell::new`.
+        // This makes sense because, for instance, `nom` doesn't need to allocate
+        // new strings, it works but slicing subslices of subslices of subslices.
+        assert!(new_count() == 1);
     }
 }

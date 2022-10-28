@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use assert2::{assert, check, let_assert};
 
 use char_list::CharList;
