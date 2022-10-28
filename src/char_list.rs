@@ -374,6 +374,11 @@ impl AsRef<str> for CharList {
     }
 }
 
+/// Note: Borrow can be implemented for `CharList` because for all `CharList`s
+/// `x` and `y`:
+/// 1. `x == y` implies `x.borrow() == y.borrow()`,
+/// 2. `x.cmp(y) == x.borrow().cmp(y.borrow())`, and
+/// 3. `hash(x) == hash(y)` implies `hash(x.borrow()) == hash(y.borrow())`.
 impl Borrow<str> for CharList {
     fn borrow(&self) -> &str {
         self.as_str()
