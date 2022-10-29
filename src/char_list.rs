@@ -643,9 +643,9 @@ mod parser_use_case {
 
     #[test]
     fn little_parser() {
-        use crate::pq_rc::pq_rc_cell::new_counts::{new_count, reset_new_count};
+        use crate::pq_rc::pq_rc_cell::new_counts::{new_count, reset_counts};
 
-        reset_new_count();
+        reset_counts();
 
         let i = CharList::from("one 2 three 456");
 
@@ -673,4 +673,158 @@ mod parser_use_case {
         // new strings, it works but slicing subslices of subslices of subslices.
         assert!(new_count() == 1);
     }
+}
+
+#[cfg(test)]
+mod text_generator_use_case {
+    use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, reset_counts};
+
+    use super::*;
+    use assert2::assert;
+    use std::iter;
+
+    fn noun() -> Box<dyn Iterator<Item = CharList>> {
+        Box::new(
+            ["candy", "ghost", "costume"]
+                .into_iter()
+                .map(CharList::from),
+        )
+    }
+
+    fn verb() -> Box<dyn Iterator<Item = CharList>> {
+        Box::new(
+            ["chased", "stalked", "frightened"]
+                .into_iter()
+                .map(CharList::from),
+        )
+    }
+
+    fn determiner() -> Box<dyn Iterator<Item = CharList>> {
+        Box::new(
+            ["the", "that", "my", "your", "some"]
+                .into_iter()
+                .map(CharList::from),
+        )
+    }
+
+    fn sentence_forward() -> Box<dyn Iterator<Item = CharList>> {
+        Box::new(determiner().flat_map(|d1| {
+            noun().flat_map(move |n1| {
+                let d1 = d1.clone();
+                verb().flat_map(move |v| {
+                    let d1 = d1.clone();
+                    let n1 = n1.clone();
+                    determiner().flat_map(move |d2| {
+                        let d1 = d1.clone();
+                        let n1 = n1.clone();
+                        let v = v.clone();
+                        noun().flat_map(move |n2| {
+                            let d1 = d1.clone();
+                            let n1 = n1.clone();
+                            let v = v.clone();
+                            let d2 = d2.clone();
+                            iter::once(
+                                n2.cons(' ')
+                                    .cons_str(d2)
+                                    .cons(' ')
+                                    .cons_str(v)
+                                    .cons(' ')
+                                    .cons_str(n1)
+                                    .cons(' ')
+                                    .cons_str(d1),
+                            )
+                        })
+                    })
+                })
+            })
+        }))
+    }
+
+    fn sentence_backward() -> Box<dyn Iterator<Item = CharList>> {
+        Box::new(noun().flat_map(|n2| {
+            determiner().flat_map(move |d2| {
+                let n2 = n2.clone();
+                verb().flat_map(move |v| {
+                    let n2 = n2.clone();
+                    let d2 = d2.clone();
+                    noun().flat_map(move |n1| {
+                        let n2 = n2.clone();
+                        let d2 = d2.clone();
+                        let v = v.clone();
+                        determiner().flat_map(move |d1| {
+                            let n2 = n2.clone();
+                            let d2 = d2.clone();
+                            let v = v.clone();
+                            let n1 = n1.clone();
+                            iter::once(
+                                n2.cons(' ')
+                                    .cons_str(d2)
+                                    .cons(' ')
+                                    .cons_str(v)
+                                    .cons(' ')
+                                    .cons_str(n1)
+                                    .cons(' ')
+                                    .cons_str(d1),
+                            )
+                        })
+                    })
+                })
+            })
+        }))
+    }
+
+    #[test]
+    fn generate() {
+        let mut allocs = vec![];
+        reset_counts();
+
+        for s in sentence_backward() {
+            let n = current_live_allocs() as i128;
+            allocs.push(n);
+            // println!("{n}");
+            println!("Currently {n} live `CharList`s: {s:?}");
+        }
+
+        assert!(polynomial_degree(&allocs) == Some(123));
+    }
+}
+
+/// Returns `None` if inconculsive (ran out of data points).
+#[cfg(test)]
+fn polynomial_degree(ys: &[i128]) -> Option<usize>
+// fn polynomial_degree<Num>(ys: &[Num]) -> Option<usize>
+// where
+//     Num: std::ops::Sub<Output = Num> + std::cmp::Eq + Clone + Copy,
+{
+    let mut degree = 0;
+
+    let mut ys = ys.to_vec();
+    let mut diffs = ys.clone();
+
+    fn all_same(ys: &[impl std::cmp::Eq]) -> Option<bool> {
+        (ys.len() > 1).then_some(())?;
+        let (first, rest) = ys.split_first()?;
+        Some(rest.iter().all(|y| y == first))
+    }
+
+    while !all_same(&diffs)? {
+        diffs = std::iter::zip(&ys[..], &ys[1..])
+            .map(|(&y1, &y2)| y2.checked_sub(y1))
+            .collect::<Option<_>>()?;
+
+        ys.clone_from(&diffs);
+        degree += 1;
+    }
+
+    Some(degree)
+}
+
+#[test]
+fn test_polynomial_degree() {
+    use assert2::assert;
+    let ys: Vec<i128> = (0..100)
+        .into_iter()
+        .map(|x| 2 * x * x * x * x - x * x * x - 5 * x * x + 18 * x + 32)
+        .collect();
+    assert!(polynomial_degree(&ys) == Some(4));
 }

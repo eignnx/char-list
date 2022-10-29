@@ -11,11 +11,13 @@ pub mod new_counts {
     lazy_static::lazy_static! {
         /// Counts calls to `PqRcCell::new` for testing purposes.
         static ref NEW_COUNTS: Mutex<HashMap<ThreadId, usize>> = Default::default();
+        static ref DROP_COUNTS: Mutex<HashMap<ThreadId, usize>> = Default::default();
     }
 
-    pub fn reset_new_count() {
+    pub fn reset_counts() {
         let tid = thread::current().id();
         NEW_COUNTS.lock().unwrap().insert(tid, 0);
+        DROP_COUNTS.lock().unwrap().insert(tid, 0);
     }
 
     pub fn new_count() -> usize {
@@ -28,6 +30,22 @@ pub mod new_counts {
         let mut guard = NEW_COUNTS.lock().unwrap();
         let count = guard.entry(tid).or_default();
         *count += 1;
+    }
+
+    pub fn drop_count() -> usize {
+        let tid = thread::current().id();
+        *DROP_COUNTS.lock().unwrap().entry(tid).or_default()
+    }
+
+    pub fn inc_drop_count() {
+        let tid = thread::current().id();
+        let mut guard = DROP_COUNTS.lock().unwrap();
+        let count = guard.entry(tid).or_default();
+        *count += 1;
+    }
+
+    pub fn current_live_allocs() -> usize {
+        new_count() - drop_count()
     }
 }
 

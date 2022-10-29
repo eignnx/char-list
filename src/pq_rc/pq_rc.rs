@@ -7,7 +7,7 @@ use std::{
     ptr::NonNull,
 };
 
-use super::pq_rc_cell::PqRcCell;
+use super::pq_rc_cell::{self, PqRcCell};
 
 /// Priority-Queue Reference Counted pointer type.
 /// Allows mutable access to the owned value if `self` has the highest priority.
@@ -183,6 +183,8 @@ impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
         let cell = unsafe { self.ptr.as_mut() };
         cell.decr_count(self.prio);
         if PqRcCell::ref_count(cell) == 0 {
+            #[cfg(test)]
+            pq_rc_cell::new_counts::inc_drop_count();
             unsafe { std::ptr::drop_in_place(cell as *mut _) }
         }
     }
