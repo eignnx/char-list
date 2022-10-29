@@ -677,36 +677,34 @@ mod parser_use_case {
 
 #[cfg(test)]
 mod text_generator_use_case {
-    use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, reset_counts};
+    use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, new_count, reset_counts};
 
     use super::*;
-    use assert2::assert;
+    use assert2::*;
     use std::iter;
 
     fn noun() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(
-            ["candy", "ghost", "costume"]
-                .into_iter()
-                .map(CharList::from),
-        )
+        Box::new(["candy".into(), "ghost".into(), "costume".into()].into_iter())
     }
 
     fn verb() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(
-            ["chased", "stalked", "frightened"]
-                .into_iter()
-                .map(CharList::from),
-        )
+        Box::new(["chased".into(), "stalked".into(), "frightened".into()].into_iter())
     }
 
     fn determiner() -> Box<dyn Iterator<Item = CharList>> {
         Box::new(
-            ["the", "that", "my", "your", "some"]
-                .into_iter()
-                .map(CharList::from),
+            [
+                "the".into(),
+                "that".into(),
+                "my".into(),
+                "your".into(),
+                "some".into(),
+            ]
+            .into_iter(),
         )
     }
 
+    #[allow(unused)]
     fn sentence_forward() -> Box<dyn Iterator<Item = CharList>> {
         Box::new(determiner().flat_map(|d1| {
             noun().flat_map(move |n1| {
@@ -775,17 +773,20 @@ mod text_generator_use_case {
 
     #[test]
     fn generate() {
-        let mut allocs = vec![];
+        let mut live_char_lists = vec![];
         reset_counts();
 
         for s in sentence_backward() {
-            let n = current_live_allocs() as i128;
-            allocs.push(n);
-            // println!("{n}");
+            let n = current_live_allocs();
+            live_char_lists.push(n);
             println!("Currently {n} live `CharList`s: {s:?}");
         }
 
-        assert!(polynomial_degree(&allocs) == Some(123));
+        // check!(polynomial_degree(&allocs) == Some(1));
+
+        let avg_live = live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
+        check!(avg_live < 30);
+        check!(new_count() < 30);
     }
 }
 
