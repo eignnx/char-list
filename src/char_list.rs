@@ -81,6 +81,8 @@ impl CharList {
 
     /// Extracts a string slice which references `self`'s entire view of the
     /// underlying text.
+    ///
+    /// Same as [`<CharList as AsRef<str>>::as_ref`](char_list::CharList::as_ref).
     pub fn as_str(&self) -> &str {
         let entire_slice: &str = self.backing_string().as_ref();
         &entire_slice[entire_slice.len() - self.len()..]
@@ -88,6 +90,8 @@ impl CharList {
 
     /// Extracts a byte slice which references `self`'s entire view of the
     /// underlying text.
+    ///
+    /// Same as [`<CharList as AsRef<[u8]>>::as_ref`](char_list::CharList::as_ref).
     pub fn as_bytes(&self) -> &[u8] {
         self.as_str().as_bytes()
     }
@@ -153,26 +157,22 @@ impl CharList {
     /// # use assert2::assert;
     /// let (g, oats) = CharList::from("goats").car_cdr().unwrap();
     /// assert!((g, oats) == ('g', CharList::from("oats")));
+    /// ```
     ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
     /// let empty = CharList::new();
     /// assert!(empty.car_cdr() == None);
     /// ```
     #[track_caller]
     pub fn car_cdr(&self) -> Option<(char, Self)> {
-        if self.is_empty() {
-            return None;
-        }
-
-        let ch = self
-            .as_str()
-            .chars()
-            .next()
-            .expect("guard at top of fn ensures non-empty string");
-
-        let pq_rc = PqRc::clone_with_priority(&self.data, self.len() - ch.len_utf8());
-        let cl = Self { data: pq_rc };
-
-        Some((ch, cl))
+        let first_char = self.as_str().chars().next()?;
+        let new_len = self.len() - first_char.len_utf8();
+        let cdr = Self {
+            data: PqRc::clone_with_priority(&self.data, new_len),
+        };
+        Some((first_char, cdr))
     }
 
     /// Returns an iterator over the characters in `self`.
@@ -180,8 +180,8 @@ impl CharList {
         self.as_str().chars()
     }
 
-    /// Creates a `CharList` whose backing `FrontString` begins with the
-    /// capacity specified.
+    /// Creates a `CharList` whose backing [`FrontString`](front_string::FrontString)
+    /// begins with the capacity specified.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: PqRc::new(FrontString::with_capacity(capacity), 0),
@@ -272,6 +272,9 @@ impl CharList {
         self.split_at(self.len() - remainder.len())
     }
 
+    /// Just like [`split_after_prefix`](char_list::CharList::split_after_prefix)
+    /// except it will never return an empty prefix, instead returning `None` in
+    /// that case.
     pub fn split_after_nonempty_prefix<'a>(
         &'a self,
         prefix: impl Pattern<'a>,
@@ -369,7 +372,12 @@ impl CharList {
     }
 
     // TODO: implement this method
-    // pub fn try_as_mut(&mut self) -> Option<&mut str> {
+    // /// Returns a mutable slice which referencing the portion of the
+    // /// `CharList`'s view of the underlying `FrontString` which `self` is
+    // /// able to safely mutate. If no such slice exists (i.e. `self` is not
+    // /// the longest view into the underlying `FrontString`) this method
+    // /// returns an ***empty slice***.
+    // pub fn mutable_portion(&mut self) -> &mut str {
     //     let mut_string = unsafe { PqRc::try_as_mut(&self.data)? };
     //     let mut_entire_slice: &mut str = mut_string.as_mut(); // TODO: impl `AsMut` for `FrontString`
     //     let from = todo!();
@@ -380,16 +388,21 @@ impl CharList {
 
 impl Drop for CharList {
     fn drop(&mut self) {
+        // SAFETY:
+        // Does not mutate the inner value in a way that is visible to any other
+        // `PqRc` because: the length of the underlying `FrontString` is
+        // truncated to the length of the next longest (if any) `CharList` which
+        // shares ownership of the `FrontString`.
         if let Some(front_string) = unsafe { PqRc::try_as_mut(&self.data) } {
             if PqRc::uniquely_highest_priority(&self.data) {
                 if let Some(next_highest) = PqRc::second_highest_priority(&self.data) {
-                    let mut to_pop = self.len() - next_highest;
-                    while to_pop != 0 {
-                        let ch = front_string
-                            .pop_char_front()
-                            .expect("non-empty since we're in `if let Some` case");
-                        to_pop -= ch.len_utf8();
-                    }
+                    dbg!(self.backing_string());
+                    dbg!(self.len());
+                    dbg!(next_highest);
+                    debug_assert!(next_highest < self.len());
+                    front_string.truncate(next_highest);
+                    dbg!(&front_string);
+                    dbg!(<FrontString as AsRef<str>>::as_ref(&front_string));
                 }
             }
         }
@@ -496,8 +509,18 @@ impl AddAssign<CharList> for String {
 }
 
 impl AsRef<str> for CharList {
+    /// For a more specific version of this method (when types can't be
+    /// inferred) see [`CharList::as_str`](char_list::CharList::as_str).
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl AsRef<[u8]> for CharList {
+    /// For a more specific version of this method (when types can't be
+    /// inferred) see [`CharList::as_bytes`](char_list::CharList::as_bytes).
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
     }
 }
 
@@ -515,31 +538,26 @@ impl Borrow<str> for CharList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pq_rc::PqRc;
     use assert2::{assert, let_assert};
-
-    fn underlying(cl: &CharList) -> &FrontString {
-        PqRc::inner(&cl.data)
-    }
 
     #[test]
     fn mem_test_cdr_down() {
         let s3 = CharList::from("abc");
 
-        assert!(underlying(&s3).len() == 3);
+        assert!(s3.backing_string().len() == 3);
 
         let_assert!(Some((a, s2)) = s3.car_cdr());
         assert!(a == 'a');
         assert!(s2 == "bc");
 
-        assert!(underlying(&s3).len() == 3);
+        assert!(s3.backing_string().len() == 3);
 
         let_assert!(Some((b, s1)) = s2.car_cdr());
         assert!(b == 'b');
         assert!(s1 == "c");
 
         drop(s3);
-        assert!(underlying(&s1).len() == 2);
+        assert!(s1.backing_string().len() == 2);
 
         let_assert!(Some((c, s0)) = s1.car_cdr());
         assert!(c == 'c');
@@ -550,31 +568,31 @@ mod tests {
 
         drop(s2);
         drop(s1);
-        assert!(underlying(&s0).len() == 0);
+        assert!(s0.backing_string().len() == 0);
     }
 
     #[test]
     fn mem_test_cons_up() {
         let empty = CharList::new();
         assert!(empty.is_empty());
-        assert!(underlying(&empty) == &"");
+        assert!(empty.backing_string() == &"");
 
         let icon = empty.cons_str("icon");
         assert!(icon == "icon");
-        assert!(underlying(&empty) == &"icon");
+        assert!(empty.backing_string() == &"icon");
 
         let nomicon = icon.cons_str("nom");
         assert!(nomicon == "nomicon");
-        assert!(underlying(&empty) == &"nomicon");
+        assert!(empty.backing_string() == &"nomicon");
 
         let rustonomicon = nomicon.cons_str("rusto");
         assert!(rustonomicon == "rustonomicon");
-        assert!(underlying(&empty) == &"rustonomicon");
+        assert!(empty.backing_string() == &"rustonomicon");
 
         let nominomicon = nomicon.cons_str("nomi");
         assert!(nominomicon == "nominomicon");
-        assert!(underlying(&empty) == &"rustonomicon");
-        assert!(underlying(&nominomicon) == &"nominomicon");
+        assert!(empty.backing_string() == &"rustonomicon");
+        assert!(nominomicon.backing_string() == &"nominomicon");
     }
 }
 
@@ -679,28 +697,40 @@ mod parser_use_case {
 mod text_generator_use_case {
     use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, new_count, reset_counts};
 
-    use super::*;
-    use assert2::*;
+    use super::CharList;
+    use assert2::{assert, check};
     use std::iter;
 
+    static NOUNS: [&'static str; 3] = ["candy", "ghost", "costume"];
     fn noun() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(["candy".into(), "ghost".into(), "costume".into()].into_iter())
+        Box::new(
+            NOUNS
+                .into_iter()
+                .map(CharList::from)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
     }
 
+    static VERBS: [&'static str; 3] = ["chased", "stalked", "frightened"];
     fn verb() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(["chased".into(), "stalked".into(), "frightened".into()].into_iter())
+        Box::new(
+            VERBS
+                .into_iter()
+                .map(CharList::from)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
     }
 
+    static DETERMINERS: [&'static str; 5] = ["the", "that", "my", "your", "some"];
     fn determiner() -> Box<dyn Iterator<Item = CharList>> {
         Box::new(
-            [
-                "the".into(),
-                "that".into(),
-                "my".into(),
-                "your".into(),
-                "some".into(),
-            ]
-            .into_iter(),
+            DETERMINERS
+                .into_iter()
+                .map(CharList::from)
+                .collect::<Vec<_>>()
+                .into_iter(),
         )
     }
 
@@ -738,6 +768,15 @@ mod text_generator_use_case {
         }))
     }
 
+    fn simple_sentence_backwards() -> Box<dyn Iterator<Item = CharList>> {
+        Box::new(noun().flat_map(move |n| {
+            determiner().flat_map(move |d| {
+                let n = n.clone();
+                iter::once(n.cons(' ').cons_str(d))
+            })
+        }))
+    }
+
     fn sentence_backward() -> Box<dyn Iterator<Item = CharList>> {
         Box::new(noun().flat_map(|n2| {
             determiner().flat_map(move |d2| {
@@ -771,22 +810,58 @@ mod text_generator_use_case {
         }))
     }
 
-    #[test]
-    fn generate() {
-        let mut live_char_lists = vec![];
-        reset_counts();
+    macro_rules! test_nonterminal_expansions {
+        ($($test_name:ident { $nonterminal_fn_name:ident => $word_groups:expr })+) => {
+            $(
+                #[test]
+                fn $test_name() {
+                    let words_used: Vec<_> = $word_groups.concat();
 
-        for s in sentence_backward() {
-            let n = current_live_allocs();
-            live_char_lists.push(n);
-            println!("Currently {n} live `CharList`s: {s:?}");
+                    let mut live_char_lists = vec![];
+                    reset_counts();
+
+                    for s in $nonterminal_fn_name() {
+                        let str_rep: &str = s.backing_string().as_ref();
+                        dbg!(str_rep);
+                        let n = current_live_allocs();
+                        live_char_lists.push(n);
+                        println!("Currently {n} live `CharList`s: {s:?}");
+
+                        for word in s.as_str().split_ascii_whitespace() {
+                            check!(
+                                words_used.contains(&word),
+                                "{word:?} isn't in {words_used:?}!"
+                            );
+                        }
+                    }
+
+                    // check!(polynomial_degree(&allocs) == Some(1));
+
+                    let avg_live =
+                        live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
+                    check!(avg_live <= words_used.len());
+                    check!(new_count() <= words_used.len() * 3);
+                }
+            )+
+        };
+    }
+
+    test_nonterminal_expansions! {
+        generate_simple_backwards {
+            simple_sentence_backwards => [&DETERMINERS[..], &NOUNS[..]]
         }
 
-        // check!(polynomial_degree(&allocs) == Some(1));
+        generate_forward {
+            sentence_forward => [
+                &DETERMINERS[..], &NOUNS[..], &VERBS[..], &DETERMINERS[..], &NOUNS[..]
+            ]
+        }
 
-        let avg_live = live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
-        check!(avg_live < 30);
-        check!(new_count() < 30);
+        generate_backward {
+            sentence_backward => [
+                &DETERMINERS[..], &NOUNS[..], &VERBS[..], &DETERMINERS[..], &NOUNS[..]
+            ]
+        }
     }
 }
 

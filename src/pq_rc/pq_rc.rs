@@ -84,7 +84,7 @@ where
     /// Returns true if `this` is the only `PqRc` that has max priority.
     pub fn uniquely_highest_priority(this: &PqRc<T, Priority>) -> bool {
         let cell = Self::cell_ref(this);
-        let (&max_prio, &count) = PqRcCell::max_priority_and_count(cell);
+        let (max_prio, count) = PqRcCell::max_priority_and_count(cell);
         Self::priority(this) == max_prio && count == NonZeroUsize::MIN
     }
 
