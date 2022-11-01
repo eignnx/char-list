@@ -129,6 +129,10 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         prio == max_prio && count == NonZeroUsize::MIN
     }
 
+    /// TODO[NON-OPTIMAL]: https://github.com/eignnx/char-list/issues/3
+    /// * When GROWING the string, ANY `PqRc` with max priority can mutate.
+    /// * When SHRINKING the string, only a `PqRc` with UNIQUELY max priority
+    ///   can mutate.
     pub fn try_inner_mut(this: &mut Self, prio: Priority) -> Option<&mut T> {
         Self::uniquely_highest_priority(this, prio).then(|| {
             let value_ptr = this.value.get();
