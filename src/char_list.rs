@@ -129,7 +129,7 @@ impl CharList {
         let s = s.as_ref();
         Self {
             data: unsafe {
-                PqRc::mutate_or_clone(
+                PqRc::mutate_or_clone_raising_prio(
                     &self.data,
                     |string_mut| {
                         string_mut.push_str_front(s);
@@ -393,18 +393,13 @@ impl Drop for CharList {
         // `PqRc` because: the length of the underlying `FrontString` is
         // truncated to the length of the next longest (if any) `CharList` which
         // shares ownership of the `FrontString`.
-        if let Some(front_string) = unsafe { PqRc::try_as_mut(&self.data) } {
-            if PqRc::uniquely_highest_priority(&self.data) {
-                if let Some(next_highest) = PqRc::second_highest_priority(&self.data) {
-                    dbg!(self.backing_string());
-                    dbg!(self.len());
-                    dbg!(next_highest);
-                    debug_assert!(next_highest < self.len());
-                    front_string.truncate(next_highest);
-                    dbg!(&front_string);
-                    dbg!(<FrontString as AsRef<str>>::as_ref(&front_string));
-                }
-            }
+        unsafe {
+            PqRc::with_inner_lowering_prio(&self.data, |inner| {
+                let Some(front_string) = inner else { return };
+                let Some(next_highest) = PqRc::second_highest_priority(&self.data) else { return };
+                debug_assert!(next_highest < self.len());
+                front_string.truncate(next_highest);
+            })
         }
     }
 }
@@ -840,6 +835,8 @@ mod text_generator_use_case {
                     let avg_live =
                         live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
                     check!(avg_live <= words_used.len());
+
+                    // TODO: investigate why this allocates so much!
                     check!(new_count() <= words_used.len() * 3);
                 }
             )+

@@ -119,6 +119,7 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
             .expect("priorities cannot be empty if `this` exists")
     }
 
+    #[cfg_attr(not(test), allow(unused))]
     pub fn max_priority(this: &Self) -> Priority {
         let (max_proi, _) = Self::max_priority_and_count(this);
         max_proi
@@ -129,34 +130,91 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         prio == max_prio && count == NonZeroUsize::MIN
     }
 
-    /// TODO[NON-OPTIMAL]: https://github.com/eignnx/char-list/issues/3
-    /// * When GROWING the string, ANY `PqRc` with max priority can mutate.
-    /// * When SHRINKING the string, only a `PqRc` with UNIQUELY max priority
-    ///   can mutate.
-    pub fn try_inner_mut(this: &mut Self, prio: Priority) -> Option<&mut T> {
-        Self::uniquely_highest_priority(this, prio).then(|| {
-            let value_ptr = this.value.get();
+    pub fn highest_priority(this: &Self, prio: Priority) -> bool {
+        let (max_prio, _) = PqRcCell::max_priority_and_count(this);
+        prio == max_prio
+    }
+
+    /// SAFETY: TODO[document safety invariants]
+    pub fn with_inner_raising_prio<'a, F, O>(this: &'a Self, prio: Priority, mut action: F) -> O
+    where
+        F: FnMut(Option<&'a mut T>) -> O,
+    {
+        if Self::highest_priority(this, prio) {
+            #[cfg(test)]
+            let old_max = Self::max_priority(this);
+
             // SAFETY:
-            // * The access is unique (no active references, mutable or not)
-            //   because:
-            //     - `this` is itself uniquely borrowed via `&mut`.
-            // * The pointer is properly aligned because:
-            //     - it's a pointer to a field of a properly aligned reference
-            //       to a struct.
-            // * It is "dereferenceable" in the sense defined in `mod std::ptr`
-            //   documentation because:
-            //     - TODO[safety argument omitted]
-            // * The pointer points to an initialized instance of T because:
-            //     - `this` is assumed to have been properly initialized, along
-            //       with all its fields.
-            // * Rust's aliasing rules are enforced, since the returned lifetime
-            //   `'a` is arbitrarily chosen and does not necessarily reflect the
-            //   actual lifetime of the data. In particular, while this
-            //   reference exists, the memory the pointer points to is not
-            //   accessed (read or written) through any other pointer:
-            //     - TODO[safety argument omitted]
-            unsafe { value_ptr.as_mut().unwrap_unchecked() }
-        })
+            // TODO[safety argument omitted]
+            let output = unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) };
+
+            #[cfg(test)]
+            {
+                let new_max = Self::max_priority(this);
+                debug_assert!(new_max >= old_max);
+            }
+
+            output
+        } else {
+            action(None)
+        }
+    }
+
+    /// SAFETY: TODO[document safety invariants]
+    pub fn with_inner_lowering_prio<'a, F, O>(this: &'a Self, prio: Priority, mut action: F) -> O
+    where
+        F: FnMut(Option<&'a mut T>) -> O,
+    {
+        if Self::uniquely_highest_priority(this, prio) {
+            #[cfg(test)]
+            let old_snd_max = Self::second_highest_priority(this);
+
+            // SAFETY:
+            // TODO[safety argument omitted]
+            let output = unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) };
+
+            #[cfg(test)]
+            if let Some(old_snd_max) = old_snd_max {
+                let new_max = Self::max_priority(this);
+                debug_assert!(new_max >= old_snd_max);
+            }
+
+            output
+        } else {
+            action(None)
+        }
+    }
+
+    /// SAFETY: TODO[document safety invariants]
+    unsafe fn mutate_inner<'a, F, O>(this: &'a Self, mut action: F) -> O
+    where
+        F: FnMut(&'a mut T) -> O,
+    {
+        let value_ptr = this.value.get();
+
+        // SAFETY:
+        // * The access is unique (no active references, mutable or not)
+        //   because:
+        //     - `this` is itself uniquely borrowed via `&mut`.
+        // * The pointer is properly aligned because:
+        //     - it's a pointer to a field of a properly aligned reference
+        //       to a struct.
+        // * It is "dereferenceable" in the sense defined in `mod std::ptr`
+        //   documentation because:
+        //     - TODO[safety argument omitted]
+        // * The pointer points to an initialized instance of T because:
+        //     - `this` is assumed to have been properly initialized, along
+        //       with all its fields.
+        // * Rust's aliasing rules are enforced, since the returned lifetime
+        //   `'a` is arbitrarily chosen and does not necessarily reflect the
+        //   actual lifetime of the data. In particular, while this
+        //   reference exists, the memory the pointer points to is not
+        //   accessed (read or written) through any other pointer:
+        //     - TODO[safety argument omitted]
+        let inner_mut = unsafe { value_ptr.as_mut().unwrap_unchecked() };
+
+        // Perform the mutating action on the inner value.
+        action(inner_mut)
     }
 
     pub fn incr_count(&self, prio: Priority) {

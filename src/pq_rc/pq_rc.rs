@@ -3,7 +3,7 @@ use std::{
     alloc::Layout,
     marker::PhantomData,
     num::NonZeroUsize,
-    ops::{Add, Deref},
+    ops::{Add, Deref, Sub},
     ptr::NonNull,
 };
 
@@ -20,7 +20,7 @@ pub struct PqRc<T, Priority: Ord + Copy> {
 
 impl<T, Priority> PqRc<T, Priority>
 where
-    Priority: Ord + Copy + Add<Output = Priority>,
+    Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
 {
     fn alloc_ptr() -> NonNull<PqRcCell<T, Priority>> {
         let layout = Layout::new::<PqRcCell<T, Priority>>();
@@ -81,13 +81,6 @@ where
         this.prio
     }
 
-    /// Returns true if `this` is the only `PqRc` that has max priority.
-    pub fn uniquely_highest_priority(this: &PqRc<T, Priority>) -> bool {
-        let cell = Self::cell_ref(this);
-        let (max_prio, count) = PqRcCell::max_priority_and_count(cell);
-        Self::priority(this) == max_prio && count == NonZeroUsize::MIN
-    }
-
     #[allow(dead_code)]
     pub fn ref_count(this: &Self) -> usize {
         PqRcCell::ref_count(this.cell_ref())
@@ -97,16 +90,25 @@ where
         unsafe { self.ptr.as_ref() }
     }
 
-    /// If `self` has the highest priority relative to all other `PqRc`s that
-    /// share the inner value, returns a mutable reference to the inner value.
-    /// Otherwise returns `None`.
-    ///
     /// # Safety
-    /// With the returned `&mut`, you **must not** mutate the inner value in a
-    /// way that is visible to any other `PqRc`.
-    pub unsafe fn try_as_mut(this: &Self) -> Option<&mut T> {
+    /// TODO[document safety invariants]
+    pub fn with_inner_raising_prio<'a, F, O>(this: &'a Self, action: F) -> O
+    where
+        F: FnMut(Option<&'a mut T>) -> O,
+    {
+        // TODO[safety argument omitted]
         let cell_ref_mut = unsafe { this.ptr.as_ptr().as_mut().unwrap_unchecked() };
-        PqRcCell::try_inner_mut(cell_ref_mut, this.prio)
+        PqRcCell::with_inner_raising_prio(cell_ref_mut, this.prio, action)
+    }
+
+    /// SAFETY: TODO[document safety invariants]
+    pub fn with_inner_lowering_prio<'a, F, O>(this: &'a Self, action: F) -> O
+    where
+        F: FnMut(Option<&'a mut T>) -> O,
+    {
+        // TODO[safety argument omitted]
+        let cell_ref_mut = unsafe { this.ptr.as_ptr().as_mut().unwrap_unchecked() };
+        PqRcCell::with_inner_lowering_prio(cell_ref_mut, this.prio, action)
     }
 
     /// A new `PqRc` `x` is returned from this function where `x`'s priority is
@@ -115,32 +117,39 @@ where
     ///
     /// # Arguments
     /// * `new_prio_mut` accepts a **mutable** reference to the inner value, and
-    /// should return a priority difference.
+    /// should return a priority difference (increase).
     /// * `new_prio_ref` accepts an **immutable** reference to the inner value,
-    /// and should return a priority difference *AND* a new `T` value.
+    /// and should return a priority difference (increase) *AND* a new `T` value.
     ///
     /// # Safety
     /// With the provided `&mut`, you **must not** mutate the inner value in a
     /// way that is visible to any other `PqRc` (except the new one just created).
-    pub unsafe fn mutate_or_clone<'a>(
+    pub unsafe fn mutate_or_clone_raising_prio<'a>(
         this: &'a Self,
         new_prio_mut: impl Fn(&'a mut T) -> Priority,
         new_prio_ref: impl Fn(&'a T) -> (Priority, T),
     ) -> Self {
-        // SAFETY: `inner_ref` will be mutated according to `new_prio_mut`, whose
+        // SAFETY: TODO
+        // OLD ----v
+        // `inner_ref` will be mutated according to `new_prio_mut`, whose
         // requirements are listed in this function's safety section, and are the
         // same as those required by `try_as_mut`.
-        match unsafe { Self::try_as_mut(this) } {
-            Some(inner_ref) => {
-                let new_prio = new_prio_mut(inner_ref);
-                // SAFETY: `this.ptr` points to a valid `PqRcCell` because `this`
-                // is assumed to be valid at start of this function.
-                unsafe { Self::from_prio_and_ptr(this.prio + new_prio, this.ptr) }
-            }
-            None => {
-                let (new_prio, new_value) = new_prio_ref(this.deref());
-                Self::new(new_value, this.prio + new_prio)
-            }
+        unsafe {
+            Self::with_inner_raising_prio(this, |inner| {
+                match inner {
+                    Some(inner_ref) => {
+                        let new_prio = new_prio_mut(inner_ref);
+                        // SAFETY: `this.ptr` points to a valid `PqRcCell` because `this`
+                        // is assumed to be valid at start of this function.
+                        let x = unsafe { Self::from_prio_and_ptr(this.prio + new_prio, this.ptr) };
+                        x
+                    }
+                    None => {
+                        let (new_prio, new_value) = new_prio_ref(this.deref());
+                        Self::new(new_value, this.prio + new_prio)
+                    }
+                }
+            })
         }
     }
 
@@ -171,7 +180,7 @@ where
 
 impl<T, Priority> Clone for PqRc<T, Priority>
 where
-    Priority: Ord + Copy + Add<Output = Priority>,
+    Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
 {
     fn clone(&self) -> Self {
         PqRc::clone_with_priority(self, self.prio)
@@ -195,7 +204,7 @@ impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
 
 impl<T, Priority> Deref for PqRc<T, Priority>
 where
-    Priority: Ord + Copy + Add<Output = Priority>,
+    Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
 {
     type Target = T;
 
@@ -206,7 +215,7 @@ where
 
 impl<U, T, Priority> PartialEq<U> for PqRc<T, Priority>
 where
-    Priority: Ord + Copy + Add<Output = Priority>,
+    Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
     T: PartialEq<U>,
 {
     fn eq(&self, other: &U) -> bool {
@@ -216,20 +225,20 @@ where
 
 impl<T, Priority> fmt::Debug for PqRc<T, Priority>
 where
-    Priority: Ord + Copy + Add<Output = Priority>,
+    Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
     T: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.deref().fmt(f)
+        PqRc::inner(self).fmt(f)
     }
 }
 
 impl<T, Priority> fmt::Display for PqRc<T, Priority>
 where
-    Priority: Ord + Copy + Add<Output = Priority>,
+    Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
     T: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.deref().fmt(f)
+        PqRc::inner(self).fmt(f)
     }
 }

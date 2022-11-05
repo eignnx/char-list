@@ -30,7 +30,7 @@ fn new_then_clone_then_drop() {
 fn immut_mutate() {
     let x = PqRc::new(String::new(), 0);
     let y = unsafe {
-        PqRc::mutate_or_clone(
+        PqRc::mutate_or_clone_raising_prio(
             &x,
             |s| {
                 s.push('Z');
