@@ -1,4 +1,4 @@
-#![feature(new_uninit, map_first_last, nonzero_min_max, ptr_as_uninit, pattern)]
+#![feature(new_uninit, nonzero_min_max, ptr_as_uninit, pattern)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 //!

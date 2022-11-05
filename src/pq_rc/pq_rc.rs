@@ -2,7 +2,6 @@ use core::fmt;
 use std::{
     alloc::Layout,
     marker::PhantomData,
-    num::NonZeroUsize,
     ops::{Add, Deref, Sub},
     ptr::NonNull,
 };
@@ -92,7 +91,7 @@ where
 
     /// # Safety
     /// TODO[document safety invariants]
-    pub fn with_inner_raising_prio<'a, F, O>(this: &'a Self, action: F) -> O
+    pub unsafe fn with_inner_raising_prio<'a, F, O>(this: &'a Self, action: F) -> O
     where
         F: FnMut(Option<&'a mut T>) -> O,
     {
@@ -102,7 +101,7 @@ where
     }
 
     /// SAFETY: TODO[document safety invariants]
-    pub fn with_inner_lowering_prio<'a, F, O>(this: &'a Self, action: F) -> O
+    pub unsafe fn with_inner_lowering_prio<'a, F, O>(this: &'a Self, action: F) -> O
     where
         F: FnMut(Option<&'a mut T>) -> O,
     {
@@ -141,7 +140,7 @@ where
                         let new_prio = new_prio_mut(inner_ref);
                         // SAFETY: `this.ptr` points to a valid `PqRcCell` because `this`
                         // is assumed to be valid at start of this function.
-                        let x = unsafe { Self::from_prio_and_ptr(this.prio + new_prio, this.ptr) };
+                        let x = Self::from_prio_and_ptr(this.prio + new_prio, this.ptr);
                         x
                     }
                     None => {

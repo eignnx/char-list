@@ -693,7 +693,7 @@ mod text_generator_use_case {
     use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, new_count, reset_counts};
 
     use super::CharList;
-    use assert2::{assert, check};
+    use assert2::check;
     use std::iter;
 
     static NOUNS: [&'static str; 3] = ["candy", "ghost", "costume"];
