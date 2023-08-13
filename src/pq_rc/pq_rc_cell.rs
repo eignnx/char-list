@@ -200,8 +200,6 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
     where
         F: FnMut(&'a mut T) -> O,
     {
-        let value_ptr = this.value.get();
-
         // SAFETY:
         // * The access is unique (no active references, mutable or not)
         //   because:
@@ -221,10 +219,7 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         //   reference exists, the memory the pointer points to is not
         //   accessed (read or written) through any other pointer:
         //     - TODO[safety argument omitted]
-        //
-        // * The call to `unwrap_unchecked` is safe because `this.value.get()`
-        //   will not return a null pointer.
-        let inner_mut = unsafe { value_ptr.as_mut().unwrap_unchecked() };
+        let inner_mut = unsafe { this.value.get().as_mut().unwrap() };
 
         // Perform the mutating action on the inner value.
         action(inner_mut)
