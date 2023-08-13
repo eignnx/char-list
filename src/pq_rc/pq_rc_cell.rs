@@ -133,40 +133,38 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
 
     /// Returns `true` if `this` has a higher priority than any other `PqRcCell`.
     /// See also [`PqRcCell::highest_priority`].
-    pub fn uniquely_highest_priority(this: &Self, prio: Priority) -> bool {
+    pub fn has_uniquely_highest_priority(this: &Self, prio: Priority) -> bool {
         let (max_prio, count) = PqRcCell::max_priority_and_count(this);
-        prio == max_prio && count == NonZeroUsize::MIN
+        prio == max_prio && count.get() == 1
     }
 
     /// Returns `true` if `this` has the highest priority. Note: Another `PqRcCell` may *also*
     /// have this highest priority (ex: the longest `CharList` got cloned).
     /// See also [`PqRcCell::uniquely_highest_priority`].
-    pub fn highest_priority(this: &Self, prio: Priority) -> bool {
+    pub fn has_highest_priority(this: &Self, prio: Priority) -> bool {
         let (max_prio, _) = PqRcCell::max_priority_and_count(this);
         prio == max_prio
     }
 
-    /// SAFETY: TODO[document safety invariants]
+    /// Performs a mutating action on the inner `T` value.
+    ///
+    /// Use this when you will be **raising or keeping the same** the priority
+    /// of the referring `PqRc`. This is a less strict than
+    /// [`Self::with_inner_lowering_prio`] which requires unique highest
+    /// priority.
+    ///
+    /// # Safety
+    ///
+    /// * `action` may not mutate `this.value` in any way that is visible to other `PqRc`s.
     pub fn with_inner_raising_prio<'a, F, O>(this: &'a Self, prio: Priority, mut action: F) -> O
     where
         F: FnMut(Option<&'a mut T>) -> O,
     {
-        if Self::highest_priority(this, prio) {
-            #[cfg(test)]
-            let old_max = Self::max_priority(this);
-
+        if Self::has_highest_priority(this, prio) {
             // SAFETY:
-            // TODO[safety argument omitted]
-            let output = unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) };
-
-            #[cfg(test)]
-            {
-                let new_max = Self::max_priority(this);
-                debug_assert!(new_max >= old_max);
-            }
-
-            #[allow(clippy::let_and_return)]
-            output
+            // > `action` may not mutate `this.value` in any way that is visible to other `PqRc`s.
+            // This is responsibility is placed on the caller of this function.
+            unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) }
         } else {
             action(None)
         }
@@ -183,23 +181,11 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
     where
         F: FnMut(Option<&'a mut T>) -> O,
     {
-        if Self::uniquely_highest_priority(this, prio) {
-            #[cfg(test)]
-            let old_snd_max = Self::next_highest_priority(this);
-
+        if Self::has_uniquely_highest_priority(this, prio) {
             // SAFETY:
             // > `action` may not mutate `this.value` in any way that is visible to other `PqRc`s.
             // This is responsibility is placed on the caller of this function.
-            let output = unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) };
-
-            #[cfg(test)]
-            if let Some(old_snd_max) = old_snd_max {
-                let new_max = Self::max_priority(this);
-                debug_assert!(new_max >= old_snd_max);
-            }
-
-            #[allow(clippy::let_and_return)]
-            output
+            unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) }
         } else {
             action(None)
         }
@@ -235,6 +221,9 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         //   reference exists, the memory the pointer points to is not
         //   accessed (read or written) through any other pointer:
         //     - TODO[safety argument omitted]
+        //
+        // * The call to `unwrap_unchecked` is safe because `this.value.get()`
+        //   will not return a null pointer.
         let inner_mut = unsafe { value_ptr.as_mut().unwrap_unchecked() };
 
         // Perform the mutating action on the inner value.
@@ -252,14 +241,14 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
     pub fn decr_count(&self, prio: Priority) {
         let mut priorities = self.priorities.borrow_mut();
         let count_res = priorities.get_mut(&prio);
-        let count = if cfg!(test) {
+        let count = if cfg!(not(test)) {
+            count_res.unwrap()
+        } else {
             count_res.unwrap_or_else(|| {
                 #[cfg(test)]
                 maybe_debug::dbg!("priority `{prio:?}` is not in the map!");
                 panic!("cannot unwrap value because given priority is not registered.")
             })
-        } else {
-            count_res.unwrap()
         };
 
         match count.get() {
@@ -301,15 +290,6 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
     /// So it *does not* return the second highest priority (which would be 5 in this
     /// example), it returns the priority that the "second in line" has.
     pub fn next_highest_priority(this: &PqRcCell<T, Priority>) -> Option<Priority> {
-        // #[cfg(test)]
-        // {
-        //     print!("{{");
-        //     for x in this.priorities.borrow().iter().rev() {
-        //         print!("{:?}, ", maybe_debug(&x));
-        //     }
-        //     println!("}}");
-        // }
-
         let guard = this.priorities.borrow();
         let mut it = guard.iter().rev();
         let (&highest_prio, &highest_prio_count) = it.next()?;
@@ -318,13 +298,6 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         }
         let (&snd_highest_prio, _) = it.next()?;
         Some(snd_highest_prio)
-
-        // let snd_idx = 1; // `nth_back` uses a zero-based index.
-        // this.priorities
-        //     .borrow()
-        //     .iter()
-        //     .nth_back(snd_idx)
-        //     .map(|(&prio, _)| prio)
     }
 }
 
