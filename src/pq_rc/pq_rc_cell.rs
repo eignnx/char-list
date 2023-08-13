@@ -1,4 +1,5 @@
 use std::{
+    alloc::Layout,
     cell::{RefCell, UnsafeCell},
     collections::BTreeMap,
     num::NonZeroUsize,
@@ -66,6 +67,8 @@ pub struct PqRcCell<T: ?Sized, Priority: Ord> {
 }
 
 impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
+    pub const LAYOUT: Layout = Layout::new::<PqRcCell<T, Priority>>();
+
     /// What does this function ***do***?
     /// - It allocates a new `BTreeMap`
     /// - It inserts a `(usize, NonZeroUsize)` pair into the map.

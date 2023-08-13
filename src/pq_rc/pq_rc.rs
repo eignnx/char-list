@@ -1,6 +1,5 @@
 use core::fmt;
 use std::{
-    alloc::Layout,
     marker::PhantomData,
     ops::{Add, Deref, Sub},
     ptr::NonNull,
@@ -22,17 +21,16 @@ where
     Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
 {
     fn alloc_ptr() -> NonNull<PqRcCell<T, Priority>> {
-        let layout = Layout::new::<PqRcCell<T, Priority>>();
         // SAFETY:
         // > This function is unsafe because undefined behavior can result if
         // > the caller does not ensure that layout has non-zero size.
         // The size of a `PqRcCell` is at least the size of a `BTreeMap`, which
         // is non-zero.
-        let ptr = unsafe { std::alloc::alloc(layout) };
+        let ptr = unsafe { std::alloc::alloc(PqRcCell::<T, Priority>::LAYOUT) };
         let ptr = ptr as *mut PqRcCell<T, Priority>;
         match NonNull::new(ptr) {
             Some(ptr) => ptr,
-            None => std::alloc::handle_alloc_error(layout),
+            None => std::alloc::handle_alloc_error(PqRcCell::<T, Priority>::LAYOUT),
         }
     }
 
@@ -43,13 +41,9 @@ where
         unsafe { Self::from_cell_and_prio(cell, priority) }
     }
 
-    #[allow(unused)]
-    pub fn new_from(value: impl Into<T>, priority: Priority) -> Self {
-        Self::new(value.into(), priority)
-    }
-
     /// # Safety
-    /// * `cell` must account for the `PqRc` that will be created by this function.
+    /// `cell` must register the priority of the `PqRc` that will be created
+    /// by this function.
     unsafe fn from_cell_and_prio(cell: PqRcCell<T, Priority>, prio: Priority) -> Self {
         let ptr = Self::alloc_ptr();
 
@@ -131,8 +125,8 @@ where
     /// way that is visible to any other `PqRc` (except the new one just created).
     pub unsafe fn mutate_or_clone_raising_prio<'a>(
         this: &'a Self,
-        new_prio_mut: impl Fn(&'a mut T) -> Priority,
-        new_prio_ref: impl Fn(&'a T) -> (Priority, T),
+        on_mut_action: impl Fn(&'a mut T) -> Priority,
+        on_ref_action: impl Fn(&'a T) -> (Priority, T),
     ) -> Self {
         // SAFETY: TODO
         // OLD ----v
@@ -143,13 +137,13 @@ where
             Self::with_inner_raising_prio(this, |inner| {
                 match inner {
                     Some(inner_ref) => {
-                        let new_prio = new_prio_mut(inner_ref);
+                        let new_prio = on_mut_action(inner_ref);
                         // SAFETY: `this.ptr` points to a valid `PqRcCell` because `this`
                         // is assumed to be valid at start of this function.
                         Self::from_prio_and_ptr(this.prio + new_prio, this.ptr)
                     }
                     None => {
-                        let (new_prio, new_value) = new_prio_ref(this.deref());
+                        let (new_prio, new_value) = on_ref_action(this.deref());
                         Self::new(new_value, this.prio + new_prio)
                     }
                 }
@@ -159,42 +153,19 @@ where
 
     /// Create a new pointer to the shared inner `T` but with a new priority.
     pub fn clone_with_priority(this: &Self, new_prio: Priority) -> PqRc<T, Priority> {
-        let mut new = Self {
+        let new = Self {
             prio: new_prio,
             ptr: this.ptr,
             _t_marker: Default::default(),
             _p_marker: Default::default(),
         };
 
-        // SAFETY:
-        //
-        // > The pointer must be properly aligned.
-        // `PqRcCell`s are not created with unaligned `ptr` fields, and `ptr` is
-        // never shifted so it isn't becoming unaligned ever.
-        //
-        // > It must be "dereferenceable" in the sense defined in [the module documentation].
-        // TODO[safety argument omitted]
-        //
-        // > The pointer must point to an initialized instance of `T`.
-        // `*this` is assumed to contain an initialized instance of a `PqRcCell`.
-        //
-        // > You must enforce Rust's aliasing rules, since the returned lifetime `'a` is
-        // > arbitrarily chosen and does not necessarily reflect the actual lifetime of the data.
-        // > In particular, while this reference exists, the memory the pointer points to must
-        // > not get accessed (read or written) through any other pointer.
-        // We get the `&mut`, call `incr_count` with it, and then immediately release it.
-        //
-        // > This applies even if the result of this method is unused!
-        // > (The part about being initialized is not yet fully decided, but until
-        // > it is, the only safe approach is to ensure that they are indeed initialized.)
-        // The result *is* used, so this doesn't apply.
-        let cell = unsafe { new.ptr.as_mut() };
-        cell.incr_count(new.prio);
+        Self::cell_ref(&new).incr_count(new.prio);
 
         new
     }
 
-    pub fn second_highest_priority(this: &PqRc<T, Priority>) -> Option<Priority> {
+    pub fn next_highest_priority(this: &PqRc<T, Priority>) -> Option<Priority> {
         PqRcCell::next_highest_priority(this.cell_ref())
     }
 
@@ -208,7 +179,7 @@ where
     Priority: Ord + Copy + Add<Output = Priority> + Sub<Output = Priority>,
 {
     fn clone(&self) -> Self {
-        PqRc::clone_with_priority(self, self.prio)
+        Self::clone_with_priority(self, self.prio)
     }
 }
 
@@ -222,8 +193,25 @@ impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
                 use crate::pq_rc::pq_rc_cell;
                 pq_rc_cell::new_counts::incr_total_drop_count();
             }
+
             // TODO[safety argument omitted]
-            unsafe { std::ptr::drop_in_place(cell as *mut _) }
+            unsafe {
+                // Call the cell's destructor.
+                std::ptr::drop_in_place(cell as *mut _);
+            }
+
+            // SAFETY:
+            // * ptr must denote a block of memory currently allocated via this
+            //   allocator
+            //      - Yes, a `PqRc` allocs `ptr` with the same allocator as this
+            //        one.
+            // * layout must be the same layout that was used to allocate that
+            //   block of memory.
+            //      - Yep, its the same layout.
+            unsafe {
+                let ptr_bytes = self.ptr.as_ptr() as *mut u8;
+                std::alloc::dealloc(ptr_bytes, PqRcCell::<T, Priority>::LAYOUT);
+            }
         }
     }
 }

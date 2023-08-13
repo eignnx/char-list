@@ -456,7 +456,7 @@ impl<Tail: Clone + Default> Drop for CharList<Tail> {
             PqRc::with_inner_lowering_prio(&self.data, |inner| match inner {
                 None => (),
                 Some(repr) => {
-                    let Some(next_highest) = PqRc::second_highest_priority(&self.data) else {
+                    let Some(next_highest) = PqRc::next_highest_priority(&self.data) else {
                         return;
                     };
                     debug_assert!(next_highest < self.len());
