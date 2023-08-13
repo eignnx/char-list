@@ -23,6 +23,11 @@ where
 {
     fn alloc_ptr() -> NonNull<PqRcCell<T, Priority>> {
         let layout = Layout::new::<PqRcCell<T, Priority>>();
+        // SAFETY:
+        // > This function is unsafe because undefined behavior can result if
+        // > the caller does not ensure that layout has non-zero size.
+        // The size of a `PqRcCell` is at least the size of a `BTreeMap`, which
+        // is non-zero.
         let ptr = unsafe { std::alloc::alloc(layout) };
         let ptr = ptr as *mut PqRcCell<T, Priority>;
         match NonNull::new(ptr) {
@@ -38,6 +43,7 @@ where
         unsafe { Self::from_cell_and_prio(cell, priority) }
     }
 
+    #[allow(unused)]
     pub fn new_from(value: impl Into<T>, priority: Priority) -> Self {
         Self::new(value.into(), priority)
     }
@@ -140,8 +146,7 @@ where
                         let new_prio = new_prio_mut(inner_ref);
                         // SAFETY: `this.ptr` points to a valid `PqRcCell` because `this`
                         // is assumed to be valid at start of this function.
-                        let x = Self::from_prio_and_ptr(this.prio + new_prio, this.ptr);
-                        x
+                        Self::from_prio_and_ptr(this.prio + new_prio, this.ptr)
                     }
                     None => {
                         let (new_prio, new_value) = new_prio_ref(this.deref());
@@ -161,6 +166,28 @@ where
             _p_marker: Default::default(),
         };
 
+        // SAFETY:
+        //
+        // > The pointer must be properly aligned.
+        // `PqRcCell`s are not created with unaligned `ptr` fields, and `ptr` is
+        // never shifted so it isn't becoming unaligned ever.
+        //
+        // > It must be "dereferenceable" in the sense defined in [the module documentation].
+        // TODO[safety argument omitted]
+        //
+        // > The pointer must point to an initialized instance of `T`.
+        // `*this` is assumed to contain an initialized instance of a `PqRcCell`.
+        //
+        // > You must enforce Rust's aliasing rules, since the returned lifetime `'a` is
+        // > arbitrarily chosen and does not necessarily reflect the actual lifetime of the data.
+        // > In particular, while this reference exists, the memory the pointer points to must
+        // > not get accessed (read or written) through any other pointer.
+        // We get the `&mut`, call `incr_count` with it, and then immediately release it.
+        //
+        // > This applies even if the result of this method is unused!
+        // > (The part about being initialized is not yet fully decided, but until
+        // > it is, the only safe approach is to ensure that they are indeed initialized.)
+        // The result *is* used, so this doesn't apply.
         let cell = unsafe { new.ptr.as_mut() };
         cell.incr_count(new.prio);
 
@@ -168,8 +195,7 @@ where
     }
 
     pub fn second_highest_priority(this: &PqRc<T, Priority>) -> Option<Priority> {
-        let cell = this.cell_ref();
-        PqRcCell::second_highest_priority(cell)
+        PqRcCell::next_highest_priority(this.cell_ref())
     }
 
     pub fn inner(this: &Self) -> &T {
@@ -194,8 +220,9 @@ impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
             #[cfg(test)]
             {
                 use crate::pq_rc::pq_rc_cell;
-                pq_rc_cell::new_counts::inc_drop_count();
+                pq_rc_cell::new_counts::incr_total_drop_count();
             }
+            // TODO[safety argument omitted]
             unsafe { std::ptr::drop_in_place(cell as *mut _) }
         }
     }

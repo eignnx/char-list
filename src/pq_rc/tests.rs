@@ -1,7 +1,7 @@
 use super::*;
 
 fn slice_it(x: &PqRc<String, usize>) -> &str {
-    &x[0..PqRc::priority(&x)]
+    &x[0..PqRc::priority(x)]
 }
 
 #[test]

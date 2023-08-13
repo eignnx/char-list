@@ -6,6 +6,7 @@ use std::{
 };
 
 #[cfg(test)]
+#[allow(unused)]
 use maybe_debug::maybe_debug;
 
 #[cfg(test)]
@@ -28,24 +29,24 @@ pub mod new_counts {
         DROP_COUNTS.lock().unwrap().insert(tid, 0);
     }
 
-    pub fn new_count() -> usize {
+    pub fn total_new_count() -> usize {
         let tid = thread::current().id();
         *NEW_COUNTS.lock().unwrap().entry(tid).or_default()
     }
 
-    pub fn inc_new_count() {
+    pub fn incr_total_new_count() {
         let tid = thread::current().id();
         let mut guard = NEW_COUNTS.lock().unwrap();
         let count = guard.entry(tid).or_default();
         *count += 1;
     }
 
-    pub fn drop_count() -> usize {
+    pub fn total_drop_count() -> usize {
         let tid = thread::current().id();
         *DROP_COUNTS.lock().unwrap().entry(tid).or_default()
     }
 
-    pub fn inc_drop_count() {
+    pub fn incr_total_drop_count() {
         let tid = thread::current().id();
         let mut guard = DROP_COUNTS.lock().unwrap();
         let count = guard.entry(tid).or_default();
@@ -53,7 +54,7 @@ pub mod new_counts {
     }
 
     pub fn current_live_allocs() -> usize {
-        new_count() - drop_count()
+        total_new_count() - total_drop_count()
     }
 }
 
@@ -65,6 +66,11 @@ pub struct PqRcCell<T: ?Sized, Priority: Ord> {
 }
 
 impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
+    /// What does this function ***do***?
+    /// - It allocates a new `BTreeMap`
+    /// - It inserts a `(usize, NonZeroUsize)` pair into the map.
+    /// - Places the `BTreeMap` in a `RefCell`. (no-op?)
+    /// - Places `value` in an `UnsafeCell`. (no-op?)
     pub fn new(value: T, prio: Priority) -> Self {
         let mut priorities = BTreeMap::new();
         priorities.insert(prio, NonZeroUsize::new(1).unwrap());
@@ -73,7 +79,7 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         let value = UnsafeCell::new(value);
 
         #[cfg(test)]
-        new_counts::inc_new_count();
+        new_counts::incr_total_new_count();
 
         Self { priorities, value }
     }
@@ -121,15 +127,20 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
 
     #[cfg_attr(not(test), allow(unused))]
     pub fn max_priority(this: &Self) -> Priority {
-        let (max_proi, _) = Self::max_priority_and_count(this);
-        max_proi
+        let (max_prio, _) = Self::max_priority_and_count(this);
+        max_prio
     }
 
+    /// Returns `true` if `this` has a higher priority than any other `PqRcCell`.
+    /// See also [`PqRcCell::highest_priority`].
     pub fn uniquely_highest_priority(this: &Self, prio: Priority) -> bool {
         let (max_prio, count) = PqRcCell::max_priority_and_count(this);
         prio == max_prio && count == NonZeroUsize::MIN
     }
 
+    /// Returns `true` if `this` has the highest priority. Note: Another `PqRcCell` may *also*
+    /// have this highest priority (ex: the longest `CharList` got cloned).
+    /// See also [`PqRcCell::uniquely_highest_priority`].
     pub fn highest_priority(this: &Self, prio: Priority) -> bool {
         let (max_prio, _) = PqRcCell::max_priority_and_count(this);
         prio == max_prio
@@ -154,23 +165,31 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
                 debug_assert!(new_max >= old_max);
             }
 
+            #[allow(clippy::let_and_return)]
             output
         } else {
             action(None)
         }
     }
 
-    /// SAFETY: TODO[document safety invariants]
+    /// If `this` has the highest priority (and no one else does), then give `action` a mutable
+    /// reference to the inner `T` value. Otherwise, pass `None` to the action to let it do
+    /// something else.
+    ///
+    /// # Safety
+    ///
+    /// * `action` may not mutate `this.value` in any way that is visible to other `PqRc`s.
     pub fn with_inner_lowering_prio<'a, F, O>(this: &'a Self, prio: Priority, mut action: F) -> O
     where
         F: FnMut(Option<&'a mut T>) -> O,
     {
         if Self::uniquely_highest_priority(this, prio) {
             #[cfg(test)]
-            let old_snd_max = Self::second_highest_priority(this);
+            let old_snd_max = Self::next_highest_priority(this);
 
             // SAFETY:
-            // TODO[safety argument omitted]
+            // > `action` may not mutate `this.value` in any way that is visible to other `PqRc`s.
+            // This is responsibility is placed on the caller of this function.
             let output = unsafe { Self::mutate_inner(this, |inner| action(Some(inner))) };
 
             #[cfg(test)]
@@ -179,13 +198,18 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
                 debug_assert!(new_max >= old_snd_max);
             }
 
+            #[allow(clippy::let_and_return)]
             output
         } else {
             action(None)
         }
     }
 
-    /// SAFETY: TODO[document safety invariants]
+    /// Performs a mutable action on the inner value.
+    ///
+    /// # Safety
+    ///
+    /// * `action` may not mutate `this.value` in any way that is visible to other `PqRc`s.
     unsafe fn mutate_inner<'a, F, O>(this: &'a Self, mut action: F) -> O
     where
         F: FnMut(&'a mut T) -> O,
@@ -238,19 +262,22 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
             count_res.unwrap()
         };
 
-        match usize::from(*count) {
-            0 => unreachable!(),
+        match count.get() {
+            0 => unreachable!("NonZeroUSize::get() does not return 0."),
             1 => {
                 // Remove it from the tree.
                 priorities.remove(&prio);
             }
             n => {
-                // SAFETY: `n` is greater than 1, so `n-1` is non-zero.
+                debug_assert!(n > 1);
+                // SAFETY: `n` is greater than 1 because match didn't take either of the
+                // first two branches, so `n - 1` is non-zero.
                 *count = unsafe { NonZeroUsize::new_unchecked(n - 1) };
             }
         }
     }
 
+    /// Returns the total number of `PqRc`s that refer to this `PqRcCell`.
     pub fn ref_count(this: &Self) -> usize {
         this.priorities
             .borrow()
@@ -259,22 +286,45 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
             .sum()
     }
 
-    pub fn second_highest_priority(this: &PqRcCell<T, Priority>) -> Option<Priority> {
-        #[cfg(test)]
-        {
-            print!("{{");
-            for x in this.priorities.borrow().iter().rev() {
-                print!("{:?}, ", maybe_debug(&x));
-            }
-            println!("}}");
-        }
+    /// If the priorities' counts were expanded and sorted in descending order, i.e.
+    ///
+    /// |Priority|
+    /// |--------|
+    /// |   12   |
+    /// |   12   |
+    /// |   12   |
+    /// |    5   |
+    /// |    3   |
+    ///
+    /// This function returns the second element of that sequence (`12`).
+    ///
+    /// So it *does not* return the second highest priority (which would be 5 in this
+    /// example), it returns the priority that the "second in line" has.
+    pub fn next_highest_priority(this: &PqRcCell<T, Priority>) -> Option<Priority> {
+        // #[cfg(test)]
+        // {
+        //     print!("{{");
+        //     for x in this.priorities.borrow().iter().rev() {
+        //         print!("{:?}, ", maybe_debug(&x));
+        //     }
+        //     println!("}}");
+        // }
 
-        let snd_idx = 1;
-        this.priorities
-            .borrow()
-            .iter()
-            .nth_back(snd_idx)
-            .map(|(&prio, _)| prio)
+        let guard = this.priorities.borrow();
+        let mut it = guard.iter().rev();
+        let (&highest_prio, &highest_prio_count) = it.next()?;
+        if highest_prio_count.get() > 1 {
+            return Some(highest_prio);
+        }
+        let (&snd_highest_prio, _) = it.next()?;
+        Some(snd_highest_prio)
+
+        // let snd_idx = 1; // `nth_back` uses a zero-based index.
+        // this.priorities
+        //     .borrow()
+        //     .iter()
+        //     .nth_back(snd_idx)
+        //     .map(|(&prio, _)| prio)
     }
 }
 

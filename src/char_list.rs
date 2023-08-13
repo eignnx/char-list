@@ -3,7 +3,7 @@ use std::{
     fmt,
     hash::Hash,
     ops::{Add, AddAssign},
-    str::pattern::Pattern,
+    str::{pattern::Pattern, Utf8Error},
     string::FromUtf8Error,
 };
 
@@ -31,11 +31,18 @@ type Len = usize;
 ///
 /// This restriction may be relaxed in the future (let me know if you have a good
 /// argument for allowing this, I'm flexible 🙂).
-pub struct CharList {
-    data: PqRc<FrontString, Len>,
+pub struct CharList<Tail: Clone + Default = ()> {
+    data: PqRc<StringRepr<Tail>, Len>,
 }
 
-impl CharList {
+/// Helper struct. Allows users of `CharList` to (optionally) store extra data
+/// in the allocated `PqRcCell`.
+struct StringRepr<Tail: Clone> {
+    front_string: FrontString,
+    tail: Tail,
+}
+
+impl<Tail: Clone + Default> CharList<Tail> {
     /// Creates an empty `CharList`.
     ///
     /// # Example
@@ -47,7 +54,51 @@ impl CharList {
     /// assert!(empty.len() == 0);
     /// ```
     pub fn new() -> Self {
-        Self::with_capacity(0)
+        Self::with_capacity_and_tail(0, Default::default())
+    }
+
+    /// Creates a `CharList` whose backing [`FrontString`](front_string::FrontString)
+    /// begins with the capacity specified.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::with_capacity_and_tail(capacity, Default::default())
+    }
+
+    pub fn from_utf8(vec: Vec<u8>) -> Result<Self, FromUtf8Error> {
+        let s = String::from_utf8(vec)?;
+        Ok(Self::from_string_and_tail(s, Default::default()))
+    }
+
+    pub fn from_utf8_lossy(bytes: &[u8]) -> Self {
+        let s: String = String::from_utf8_lossy(bytes).into();
+        Self::from_string_and_tail(s, Default::default())
+    }
+
+    /// Creates an empty `CharList`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use char_list::CharList;
+    /// # use assert2::assert;
+    /// let empty = CharList::new();
+    /// assert!(empty.len() == 0);
+    /// ```
+    pub fn new_with_tail(tail: Tail) -> Self {
+        Self::with_capacity_and_tail(0, tail)
+    }
+
+    /// Creates a `CharList` whose backing [`FrontString`](front_string::FrontString)
+    /// begins with the capacity specified.
+    pub fn with_capacity_and_tail(capacity: usize, tail: Tail) -> Self {
+        Self {
+            data: PqRc::new(
+                StringRepr {
+                    front_string: FrontString::with_capacity(capacity),
+                    tail,
+                },
+                0,
+            ),
+        }
     }
 
     /// Returns the length of `self`.
@@ -131,14 +182,20 @@ impl CharList {
             data: unsafe {
                 PqRc::mutate_or_clone_raising_prio(
                     &self.data,
-                    |string_mut| {
-                        string_mut.push_str_front(s);
+                    |repr_mut| {
+                        repr_mut.front_string.push_str_front(s);
                         s.len()
                     },
                     |_string_ref| {
                         let mut new_string = FrontString::from(self.as_str());
                         new_string.push_str_front(s);
-                        (s.len(), new_string)
+                        (
+                            s.len(),
+                            StringRepr {
+                                front_string: new_string,
+                                tail: self.data.tail.clone(),
+                            },
+                        )
                     },
                 )
             },
@@ -180,29 +237,14 @@ impl CharList {
         self.as_str().chars()
     }
 
-    /// Creates a `CharList` whose backing [`FrontString`](front_string::FrontString)
-    /// begins with the capacity specified.
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            data: PqRc::new(FrontString::with_capacity(capacity), 0),
-        }
-    }
-
-    pub fn from_utf8(vec: Vec<u8>) -> Result<Self, FromUtf8Error> {
-        String::from_utf8(vec).map(Self::from)
-    }
-
-    pub fn from_utf8_lossy(bytes: &[u8]) -> Self {
-        String::from_utf8_lossy(bytes).into_owned().into()
-    }
-
     /// # Safety
     /// See [`str::from_utf8_unchecked`](std::str::from_utf8_unchecked) for
     /// safety requirements.
     pub unsafe fn from_utf8_unchecked(bytes: &[u8]) -> Self {
         // SAFETY: Defer to caller.
         let s = unsafe { std::str::from_utf8_unchecked(bytes) };
-        Self::from(s)
+        let s = s.to_owned();
+        Self::from_string_and_tail(s, Default::default())
     }
 
     /// Returns an optional `CharList` representing `self` if `prefix` had been
@@ -348,7 +390,7 @@ impl CharList {
     /// let _ = pride.split_at(2); // Panic!
     /// ```
     #[track_caller]
-    pub fn split_at(&self, split_index: usize) -> (&str, CharList) {
+    pub fn split_at(&self, split_index: usize) -> (&str, CharList<Tail>) {
         if split_index > self.len() {
             panic!("given range begins beyond end of the `CharList`");
         }
@@ -368,7 +410,24 @@ impl CharList {
 
     /// Get an immutable reference to the backing [`FrontString`](front_vec::FrontString).
     pub fn backing_string(&self) -> &FrontString {
-        PqRc::inner(&self.data)
+        &PqRc::inner(&self.data).front_string
+    }
+
+    pub fn from_string_and_tail(s: impl Into<String>, tail: Tail) -> Self {
+        let front_string: FrontString = FrontString::from(s.into());
+        let priority = front_string.len();
+        Self {
+            data: PqRc::new(StringRepr { front_string, tail }, priority),
+        }
+    }
+
+    pub fn from_utf8_and_tail(bytes: &[u8], tail: Tail) -> Result<Self, Utf8Error> {
+        let s = std::str::from_utf8(bytes)?;
+        Ok(Self::from_string_and_tail(s, tail))
+    }
+
+    pub fn from_utf8_lossy_and_tail(bytes: &[u8], tail: Tail) -> Self {
+        Self::from_string_and_tail(String::from_utf8_lossy(bytes).into_owned(), tail)
     }
 
     // TODO: implement this method
@@ -386,7 +445,7 @@ impl CharList {
     // }
 }
 
-impl Drop for CharList {
+impl<Tail: Clone + Default> Drop for CharList<Tail> {
     fn drop(&mut self) {
         // SAFETY:
         // Does not mutate the inner value in a way that is visible to any other
@@ -394,17 +453,21 @@ impl Drop for CharList {
         // truncated to the length of the next longest (if any) `CharList` which
         // shares ownership of the `FrontString`.
         unsafe {
-            PqRc::with_inner_lowering_prio(&self.data, |inner| {
-                let Some(front_string) = inner else { return };
-                let Some(next_highest) = PqRc::second_highest_priority(&self.data) else { return };
-                debug_assert!(next_highest < self.len());
-                front_string.truncate(next_highest);
+            PqRc::with_inner_lowering_prio(&self.data, |inner| match inner {
+                None => (),
+                Some(repr) => {
+                    let Some(next_highest) = PqRc::second_highest_priority(&self.data) else {
+                        return;
+                    };
+                    debug_assert!(next_highest < self.len());
+                    repr.front_string.truncate(next_highest);
+                }
             })
         }
     }
 }
 
-impl Clone for CharList {
+impl<Tail: Clone + Default> Clone for CharList<Tail> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -412,76 +475,82 @@ impl Clone for CharList {
     }
 }
 
-impl From<&str> for CharList {
+impl<Tail: Clone + Default> From<&str> for CharList<Tail> {
     fn from(s: &str) -> Self {
-        Self {
-            data: PqRc::new_from(s, s.as_bytes().len()),
-        }
+        Self::from_string_and_tail(String::from(s), Default::default())
     }
 }
 
 // TODO: Is there an EFFICIENT way to impl From<String> for FrontString?
 // See this issue: https://github.com/eignnx/char-list/issues/1
-impl From<String> for CharList {
+impl<Tail: Clone + Default> From<String> for CharList<Tail> {
     fn from(string: String) -> Self {
         let slice: &str = string.as_ref();
         slice.into()
     }
 }
 
-impl fmt::Debug for CharList {
+impl<Tail: Clone + Default> fmt::Debug for CharList<Tail> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let slice: &str = self.as_str();
         write!(f, "{slice:?}")
     }
 }
 
-impl fmt::Display for CharList {
+impl<Tail: Clone + Default> fmt::Display for CharList<Tail> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let slice: &str = self.as_str();
         write!(f, "{slice}")
     }
 }
 
-impl<S> PartialEq<S> for CharList
+impl<S, Tail> PartialEq<S> for CharList<Tail>
 where
     S: AsRef<str>,
+    Tail: Clone + Default + PartialEq, // TODO: Relax `PartialEq` requirement?
 {
     fn eq(&self, other: &S) -> bool {
         self.as_str() == other.as_ref()
     }
 }
 
-impl Eq for CharList {}
+impl<Tail: Clone + Default + Eq> Eq for CharList<Tail> {}
 
-impl<S> PartialOrd<S> for CharList
+impl<S, Tail> PartialOrd<S> for CharList<Tail>
 where
     S: AsRef<str>,
+    Tail: Clone + Default + PartialOrd, // TODO: Relax `PartialOrd` requirement?
 {
     fn partial_cmp(&self, other: &S) -> Option<std::cmp::Ordering> {
         self.as_str().partial_cmp(other.as_ref())
     }
 }
 
-impl Ord for CharList {
+impl<Tail> Ord for CharList<Tail>
+where
+    Tail: Clone + Default + Ord, // TODO: Relax `Ord` requirement?
+{
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.as_str().cmp(other.as_str())
     }
 }
 
-impl Hash for CharList {
+impl<Tail> Hash for CharList<Tail>
+where
+    Tail: Clone + Default + Hash, // TODO: Relax `Hash` requirement?
+{
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.as_str().hash(state);
     }
 }
 
-impl Default for CharList {
+impl<Tail: Clone + Default> Default for CharList<Tail> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FromIterator<char> for CharList {
+impl<Tail: Clone + Default> FromIterator<char> for CharList<Tail> {
     /// Given an iterator over the `&str` `"abc"`, the `CharList` `"abc"`
     /// will be created.
     fn from_iter<I: IntoIterator<Item = char>>(iter: I) -> Self {
@@ -490,20 +559,22 @@ impl FromIterator<char> for CharList {
     }
 }
 
-impl Add<CharList> for CharList {
-    type Output = CharList;
-    fn add(self, rhs: CharList) -> Self::Output {
+// TODO: Can this be generalized from CharList<()> to CharList<Tail>?
+impl Add<CharList<()>> for CharList<()> {
+    type Output = CharList<()>;
+    fn add(self, rhs: CharList<()>) -> Self::Output {
         rhs.cons_str(self.as_str())
     }
 }
 
-impl AddAssign<CharList> for String {
-    fn add_assign(&mut self, rhs: CharList) {
+// TODO: Can this be generalized from CharList<()> to CharList<Tail>?
+impl AddAssign<CharList<()>> for String {
+    fn add_assign(&mut self, rhs: CharList<()>) {
         self.push_str(rhs.as_str())
     }
 }
 
-impl AsRef<str> for CharList {
+impl<Tail: Clone + Default> AsRef<str> for CharList<Tail> {
     /// For a more specific version of this method (when types can't be
     /// inferred) see [`CharList::as_str`](char_list::CharList::as_str).
     fn as_ref(&self) -> &str {
@@ -511,7 +582,7 @@ impl AsRef<str> for CharList {
     }
 }
 
-impl AsRef<[u8]> for CharList {
+impl<Tail: Clone + Default> AsRef<[u8]> for CharList<Tail> {
     /// For a more specific version of this method (when types can't be
     /// inferred) see [`CharList::as_bytes`](char_list::CharList::as_bytes).
     fn as_ref(&self) -> &[u8] {
@@ -524,380 +595,11 @@ impl AsRef<[u8]> for CharList {
 /// 1. `x == y` implies `x.borrow() == y.borrow()`,
 /// 2. `x.cmp(y) == x.borrow().cmp(y.borrow())`, and
 /// 3. `hash(x) == hash(y)` implies `hash(x.borrow()) == hash(y.borrow())`.
-impl Borrow<str> for CharList {
+impl<Tail: Clone + Default> Borrow<str> for CharList<Tail> {
     fn borrow(&self) -> &str {
         self.as_str()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use assert2::{assert, let_assert};
-
-    #[test]
-    fn mem_test_cdr_down() {
-        let s3 = CharList::from("abc");
-
-        assert!(s3.backing_string().len() == 3);
-
-        let_assert!(Some((a, s2)) = s3.car_cdr());
-        assert!(a == 'a');
-        assert!(s2 == "bc");
-
-        assert!(s3.backing_string().len() == 3);
-
-        let_assert!(Some((b, s1)) = s2.car_cdr());
-        assert!(b == 'b');
-        assert!(s1 == "c");
-
-        drop(s3);
-        assert!(s1.backing_string().len() == 2);
-
-        let_assert!(Some((c, s0)) = s1.car_cdr());
-        assert!(c == 'c');
-        assert!(s0.is_empty());
-        assert!(s0 == "");
-
-        assert!(s0.car_cdr() == None);
-
-        drop(s2);
-        drop(s1);
-        assert!(s0.backing_string().len() == 0);
-    }
-
-    #[test]
-    fn mem_test_cons_up() {
-        let empty = CharList::new();
-        assert!(empty.is_empty());
-        assert!(empty.backing_string() == &"");
-
-        let icon = empty.cons_str("icon");
-        assert!(icon == "icon");
-        assert!(empty.backing_string() == &"icon");
-
-        let nomicon = icon.cons_str("nom");
-        assert!(nomicon == "nomicon");
-        assert!(empty.backing_string() == &"nomicon");
-
-        let rustonomicon = nomicon.cons_str("rusto");
-        assert!(rustonomicon == "rustonomicon");
-        assert!(empty.backing_string() == &"rustonomicon");
-
-        let nominomicon = nomicon.cons_str("nomi");
-        assert!(nominomicon == "nominomicon");
-        assert!(empty.backing_string() == &"rustonomicon");
-        assert!(nominomicon.backing_string() == &"nominomicon");
-    }
-}
-
-#[cfg(test)]
-mod parser_use_case {
-    use super::*;
-    use assert2::assert;
-
-    fn character(target: char) -> impl Fn(&CharList) -> Option<(char, CharList)> {
-        move |i| {
-            let (ch, i) = i.car_cdr()?;
-            (ch == target).then_some((ch, i))
-        }
-    }
-
-    fn many0<T>(
-        p: impl Fn(&CharList) -> Option<(T, CharList)>,
-    ) -> impl Fn(&CharList) -> Option<(Vec<T>, CharList)> {
-        move |i| {
-            let mut i = i.clone();
-            let mut ts = vec![];
-
-            while !i.is_empty() {
-                match p(&i) {
-                    Some((t, rem)) => {
-                        ts.push(t);
-                        i = rem;
-                    }
-                    None => break,
-                }
-            }
-
-            Some((ts, i))
-        }
-    }
-
-    fn or<T, P1, P2>(p1: P1, p2: P2) -> impl Fn(&CharList) -> Option<(T, CharList)>
-    where
-        P1: Fn(&CharList) -> Option<(T, CharList)>,
-        P2: Fn(&CharList) -> Option<(T, CharList)>,
-    {
-        move |i| p1(i).or_else(|| p2(i))
-    }
-
-    fn ws0(i: &CharList) -> Option<((), CharList)> {
-        let (_, i) = many0(character(' '))(i)?;
-        Some(((), i))
-    }
-
-    fn ident(i: &CharList) -> Option<(Token, CharList)> {
-        let (ident, i) = i.split_after_nonempty_prefix(char::is_alphabetic)?;
-        Some((Token::Ident(ident.to_owned()), i))
-    }
-
-    fn nat(i: &CharList) -> Option<(Token, CharList)> {
-        let (n, i) = i.split_after_nonempty_prefix(char::is_numeric)?;
-        let n = n.parse::<u64>().ok()?;
-        Some((Token::Nat(n), i))
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    enum Token {
-        Ident(String),
-        Nat(u64),
-    }
-
-    #[test]
-    fn little_parser() {
-        use crate::pq_rc::pq_rc_cell::new_counts::{new_count, reset_counts};
-
-        reset_counts();
-
-        let i = CharList::from("one 2 three 456");
-
-        let words = many0(|i: &CharList| {
-            let (tok, i) = or(ident, nat)(i)?;
-            let (_, i) = ws0(&i)?;
-            Some((tok, i))
-        });
-
-        let (w, i) = words(&i).unwrap();
-
-        assert!(i == "");
-
-        assert!(
-            w == vec![
-                Token::Ident("one".to_owned()),
-                Token::Nat(2),
-                Token::Ident("three".to_owned()),
-                Token::Nat(456),
-            ]
-        );
-
-        // Only one call to `PqRcCell::new`.
-        // This makes sense because, for instance, `nom` doesn't need to allocate
-        // new strings, it works but slicing subslices of subslices of subslices.
-        assert!(new_count() == 1);
-    }
-}
-
-#[cfg(test)]
-mod text_generator_use_case {
-    use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, new_count, reset_counts};
-
-    use super::CharList;
-    use assert2::check;
-    use std::iter;
-
-    static NOUNS: [&'static str; 3] = ["candy", "ghost", "costume"];
-    fn noun() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(
-            NOUNS
-                .into_iter()
-                .map(CharList::from)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    static VERBS: [&'static str; 3] = ["chased", "stalked", "frightened"];
-    fn verb() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(
-            VERBS
-                .into_iter()
-                .map(CharList::from)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    static DETERMINERS: [&'static str; 5] = ["the", "that", "my", "your", "some"];
-    fn determiner() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(
-            DETERMINERS
-                .into_iter()
-                .map(CharList::from)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    #[allow(unused)]
-    fn sentence_forward() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(determiner().flat_map(|d1| {
-            noun().flat_map(move |n1| {
-                let d1 = d1.clone();
-                verb().flat_map(move |v| {
-                    let d1 = d1.clone();
-                    let n1 = n1.clone();
-                    determiner().flat_map(move |d2| {
-                        let d1 = d1.clone();
-                        let n1 = n1.clone();
-                        let v = v.clone();
-                        noun().flat_map(move |n2| {
-                            let d1 = d1.clone();
-                            let n1 = n1.clone();
-                            let v = v.clone();
-                            let d2 = d2.clone();
-                            iter::once(
-                                n2.cons(' ')
-                                    .cons_str(d2)
-                                    .cons(' ')
-                                    .cons_str(v)
-                                    .cons(' ')
-                                    .cons_str(n1)
-                                    .cons(' ')
-                                    .cons_str(d1),
-                            )
-                        })
-                    })
-                })
-            })
-        }))
-    }
-
-    fn simple_sentence_backwards() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(noun().flat_map(move |n| {
-            determiner().flat_map(move |d| {
-                let n = n.clone();
-                iter::once(n.cons(' ').cons_str(d))
-            })
-        }))
-    }
-
-    fn sentence_backward() -> Box<dyn Iterator<Item = CharList>> {
-        Box::new(noun().flat_map(|n2| {
-            determiner().flat_map(move |d2| {
-                let n2 = n2.clone();
-                verb().flat_map(move |v| {
-                    let n2 = n2.clone();
-                    let d2 = d2.clone();
-                    noun().flat_map(move |n1| {
-                        let n2 = n2.clone();
-                        let d2 = d2.clone();
-                        let v = v.clone();
-                        determiner().flat_map(move |d1| {
-                            let n2 = n2.clone();
-                            let d2 = d2.clone();
-                            let v = v.clone();
-                            let n1 = n1.clone();
-                            iter::once(
-                                n2.cons(' ')
-                                    .cons_str(d2)
-                                    .cons(' ')
-                                    .cons_str(v)
-                                    .cons(' ')
-                                    .cons_str(n1)
-                                    .cons(' ')
-                                    .cons_str(d1),
-                            )
-                        })
-                    })
-                })
-            })
-        }))
-    }
-
-    macro_rules! test_nonterminal_expansions {
-        ($($test_name:ident { $nonterminal_fn_name:ident => $word_groups:expr })+) => {
-            $(
-                #[test]
-                fn $test_name() {
-                    let words_used: Vec<_> = $word_groups.concat();
-
-                    let mut live_char_lists = vec![];
-                    reset_counts();
-
-                    for s in $nonterminal_fn_name() {
-                        let str_rep: &str = s.backing_string().as_ref();
-                        dbg!(str_rep);
-                        let n = current_live_allocs();
-                        live_char_lists.push(n);
-                        println!("Currently {n} live `CharList`s: {s:?}");
-
-                        for word in s.as_str().split_ascii_whitespace() {
-                            check!(
-                                words_used.contains(&word),
-                                "{word:?} isn't in {words_used:?}!"
-                            );
-                        }
-                    }
-
-                    // check!(polynomial_degree(&allocs) == Some(1));
-
-                    let avg_live =
-                        live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
-                    check!(avg_live <= words_used.len());
-
-                    // TODO: investigate why this allocates so much!
-                    check!(new_count() <= words_used.len() * 3);
-                }
-            )+
-        };
-    }
-
-    test_nonterminal_expansions! {
-        generate_simple_backwards {
-            simple_sentence_backwards => [&DETERMINERS[..], &NOUNS[..]]
-        }
-
-        generate_forward {
-            sentence_forward => [
-                &DETERMINERS[..], &NOUNS[..], &VERBS[..], &DETERMINERS[..], &NOUNS[..]
-            ]
-        }
-
-        generate_backward {
-            sentence_backward => [
-                &DETERMINERS[..], &NOUNS[..], &VERBS[..], &DETERMINERS[..], &NOUNS[..]
-            ]
-        }
-    }
-}
-
-/// Returns `None` if inconculsive (ran out of data points).
-#[cfg(test)]
-fn polynomial_degree(ys: &[i128]) -> Option<usize>
-// fn polynomial_degree<Num>(ys: &[Num]) -> Option<usize>
-// where
-//     Num: std::ops::Sub<Output = Num> + std::cmp::Eq + Clone + Copy,
-{
-    let mut degree = 0;
-
-    let mut ys = ys.to_vec();
-    let mut diffs = ys.clone();
-
-    fn all_same(ys: &[impl std::cmp::Eq]) -> Option<bool> {
-        (ys.len() > 1).then_some(())?;
-        let (first, rest) = ys.split_first()?;
-        Some(rest.iter().all(|y| y == first))
-    }
-
-    while !all_same(&diffs)? {
-        diffs = std::iter::zip(&ys[..], &ys[1..])
-            .map(|(&y1, &y2)| y2.checked_sub(y1))
-            .collect::<Option<_>>()?;
-
-        ys.clone_from(&diffs);
-        degree += 1;
-    }
-
-    Some(degree)
-}
-
-#[test]
-fn test_polynomial_degree() {
-    use assert2::assert;
-    let ys: Vec<i128> = (0..100)
-        .into_iter()
-        .map(|x| 2 * x * x * x * x - x * x * x - 5 * x * x + 18 * x + 32)
-        .collect();
-    assert!(polynomial_degree(&ys) == Some(4));
-}
+mod tests;

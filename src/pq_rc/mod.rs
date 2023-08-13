@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 mod pq_rc;
 
 #[cfg(not(test))]
