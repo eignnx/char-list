@@ -47,6 +47,7 @@ where
     unsafe fn from_cell_and_prio(cell: PqRcCell<T, Priority>, prio: Priority) -> Self {
         let ptr = Self::alloc_ptr();
 
+        // SAFETY: TODO[safety argument omitted]
         unsafe {
             ptr.as_uninit_mut().write(cell);
         }
