@@ -125,12 +125,6 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
             .expect("priorities cannot be empty if `this` exists")
     }
 
-    #[cfg_attr(not(test), allow(unused))]
-    pub fn max_priority(this: &Self) -> Priority {
-        let (max_prio, _) = Self::max_priority_and_count(this);
-        max_prio
-    }
-
     /// Returns `true` if `this` has a higher priority than any other `PqRcCell`.
     /// See also [`PqRcCell::highest_priority`].
     pub fn has_uniquely_highest_priority(this: &Self, prio: Priority) -> bool {
