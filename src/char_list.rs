@@ -459,7 +459,7 @@ impl<Tail: Clone + Default> Drop for CharList<Tail> {
                     let Some(next_highest) = PqRc::next_highest_priority(&self.data) else {
                         return;
                     };
-                    debug_assert!(next_highest < self.len());
+                    debug_assert!(next_highest <= self.len());
                     repr.front_string.truncate(next_highest);
                 }
             })

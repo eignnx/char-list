@@ -233,15 +233,11 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
     pub fn decr_count(&self, prio: Priority) {
         let mut priorities = self.priorities.borrow_mut();
         let count_res = priorities.get_mut(&prio);
-        let count = if cfg!(not(test)) {
-            count_res.unwrap()
-        } else {
-            count_res.unwrap_or_else(|| {
-                #[cfg(test)]
-                maybe_debug::dbg!("priority `{prio:?}` is not in the map!");
-                panic!("cannot unwrap value because given priority is not registered.")
-            })
-        };
+        let count = count_res.unwrap_or_else(|| {
+            #[cfg(test)]
+            maybe_debug::dbg!("priority `{prio:?}` is not in the map!");
+            panic!("cannot unwrap value because given priority is not registered.")
+        });
 
         match count.get() {
             0 => unreachable!("NonZeroUSize::get() does not return 0."),
