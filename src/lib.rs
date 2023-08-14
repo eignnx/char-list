@@ -163,3 +163,5 @@ mod char_list;
 mod pq_rc;
 
 pub use crate::char_list::*;
+
+pub type CharList = crate::char_list::CharList<()>;

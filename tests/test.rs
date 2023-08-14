@@ -6,24 +6,24 @@ use char_list::CharList;
 
 #[test]
 fn construct_destruct() {
-    CharList::<()>::new();
+    CharList::new();
 }
 
 #[test]
 fn construct_cmp() {
-    let s: CharList = CharList::new();
+    let s = CharList::new();
     assert!(s == "");
 }
 
 #[test]
 fn cons_1() {
-    let s: CharList = CharList::new().cons('a');
+    let s = CharList::new().cons('a');
     assert!(s == "a");
 }
 
 #[test]
 fn cons_2() {
-    let s0: CharList = CharList::new();
+    let s0 = CharList::new();
     let s1 = s0.cons('z');
     let s2 = s1.cons('y');
     let s3 = s2.cons('x');
@@ -40,7 +40,7 @@ fn cons_2() {
 #[test]
 fn cons_hirigana() {
     let entire = "いろはにほへとちりぬるを";
-    let mut s: CharList = CharList::new();
+    let mut s = CharList::new();
     for ch in entire.chars().rev() {
         s = s.cons(ch);
     }
@@ -50,13 +50,13 @@ fn cons_hirigana() {
 #[test]
 fn from_str() {
     let text = "いろはにほへとちりぬるを";
-    let s: CharList = CharList::from(text);
+    let s = CharList::from(text);
     assert!(s == text);
 }
 
 #[test]
 fn car_cdr_simple() {
-    let s: CharList = CharList::from("a");
+    let s = CharList::from("a");
     let_assert!(Some((head, tail)) = s.car_cdr(), "s = {s:?}");
     check!(head == 'a');
     check!(tail == "");
@@ -64,7 +64,7 @@ fn car_cdr_simple() {
 
 #[test]
 fn car_cdr_long() {
-    let abc: CharList = CharList::from("abc");
+    let abc = CharList::from("abc");
 
     let_assert!(Some((a, bc)) = abc.car_cdr());
     assert!(a == 'a');
@@ -84,7 +84,7 @@ fn car_cdr_long() {
 
 #[test]
 fn cons_str_backwards() {
-    let mut sentence = CharList::<()>::new();
+    let mut sentence = CharList::new();
 
     const WORDS: &[&str] = &["In", "the", "town", "where", "I", "was", "born"];
 
@@ -94,4 +94,19 @@ fn cons_str_backwards() {
 
     let_assert!(Some((' ', sentence)) = sentence.car_cdr());
     assert!(sentence == "In the town where I was born");
+}
+
+#[test]
+fn tree_of_char_lists() {
+    let mammal = CharList::from("mammal");
+    {
+        let dog = mammal.cons_str("dog < ");
+        let poodle = dog.cons_str("poodle < ");
+        assert!(mammal == "mammal");
+        assert!(dog == "dog < mammal");
+        assert!(poodle == "poodle < dog < mammal");
+    }
+    let cat = mammal.cons_str("cat < ");
+    assert!(mammal == "mammal");
+    assert!(cat == "cat < mammal");
 }
