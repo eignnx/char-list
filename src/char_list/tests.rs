@@ -178,12 +178,8 @@ macro_rules! test_nonterminal_expansions {
                     reset_counts();
 
                     for s in $nonterminal_fn_name() {
-                        // let str_rep: &str = s.backing_string().as_ref();
-                        // dbg!(str_rep);
                         let n = current_live_allocs();
                         live_char_lists.push(n);
-                        // println!("Currently {n} live `CharList`s");
-                        // println!("Currently {n} live `CharList`s: {s:?}");
 
                         for word in s.as_str().split_ascii_whitespace() {
                             check!(
@@ -199,11 +195,16 @@ macro_rules! test_nonterminal_expansions {
                         live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
                     check!(avg_live <= words_used.len());
 
-                    const REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_LIVE_ALLOC_COUNT: usize = 2;
-                    check!(current_live_allocs() <= words_used.len() * REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_LIVE_ALLOC_COUNT);
+                    // Due to the way these nested `flat_map`s are set up, we expect `CharList`s to
+                    // be allocated according to the product of the lengths of the word groups.
+                    // In a real application, things could probably be setup more efficiently.
+                    let num_words_generated: usize = $word_groups.iter().map(|g| g.len()).product();
 
-                    const REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_TOTAL_NEW_COUNT: usize = 5;
-                    check!(total_new_count() <= words_used.len() * REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_TOTAL_NEW_COUNT);
+                    const REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_LIVE_ALLOC_COUNT: usize = 2;
+                    check!(current_live_allocs() <= num_words_generated * REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_LIVE_ALLOC_COUNT);
+
+                    const REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_TOTAL_NEW_COUNT: usize = 2;
+                    check!(total_new_count() <= num_words_generated * REASONABLE_FACTOR_FOR_UPPER_BOUND_ON_TOTAL_NEW_COUNT);
                 }
             )+
         };

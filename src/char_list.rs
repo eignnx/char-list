@@ -189,13 +189,11 @@ impl<Tail: Clone + Default> CharList<Tail> {
                     |_string_ref| {
                         let mut new_string = FrontString::from(self.as_str());
                         new_string.push_str_front(s);
-                        (
-                            s.len(),
-                            StringRepr {
-                                front_string: new_string,
-                                tail: self.data.tail.clone(),
-                            },
-                        )
+                        let repr = StringRepr {
+                            front_string: new_string,
+                            tail: self.data.tail.clone(),
+                        };
+                        (s.len(), repr)
                     },
                 )
             },

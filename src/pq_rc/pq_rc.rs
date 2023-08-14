@@ -37,7 +37,7 @@ where
     pub fn new(value: T, priority: Priority) -> Self {
         let cell = PqRcCell::new(value, priority);
         // SAFETY: `cell` knows about the `PqRc` that we're about to create since
-        // the `new` function registers a new referee.
+        // the `new` function registers the priority.
         unsafe { Self::from_cell_and_prio(cell, priority) }
     }
 
@@ -186,9 +186,11 @@ where
 
 impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
     fn drop(&mut self) {
-        let cell = unsafe { self.ptr.as_mut() };
-        cell.decr_count(self.prio);
-        if PqRcCell::ref_count(cell) == 0 {
+        unsafe {
+            self.ptr.as_mut().decr_count(self.prio);
+        }
+
+        if PqRcCell::ref_count(unsafe { self.ptr.as_ref() }) == 0 {
             #[cfg(test)]
             {
                 use crate::pq_rc::pq_rc_cell;
@@ -198,7 +200,7 @@ impl<T, Priority: Ord + Copy> Drop for PqRc<T, Priority> {
             // TODO[safety argument omitted]
             unsafe {
                 // Call the cell's destructor.
-                std::ptr::drop_in_place(cell as *mut _);
+                std::ptr::drop_in_place(self.ptr.as_mut() as *mut _);
             }
 
             // SAFETY:

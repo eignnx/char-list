@@ -87,7 +87,7 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         Self { priorities, value }
     }
 
-    pub fn inner(this: &Self) -> &T {
+    pub fn inner<'a>(this: &'a Self) -> &'a T {
         let ptr = this.value.get() as *const T;
         // SAFETY: If we have a shared immutable reference to `this`, it's ok
         // to turn that into a shared immutable reference to `value`.
@@ -116,7 +116,7 @@ impl<T, Priority: Ord + Copy> PqRcCell<T, Priority> {
         //   (except inside `UnsafeCell`).
         //   This applies even if the result of this method is unused!
         //     - This is ok because the value **is** inside of an `UnsafeCell`.
-        unsafe { ptr.as_ref().unwrap_unchecked() }
+        unsafe { ptr.as_ref::<'a>().unwrap_unchecked() }
     }
 
     pub fn max_priority_and_count(this: &Self) -> (Priority, Count) {
