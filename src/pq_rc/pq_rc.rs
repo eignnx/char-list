@@ -62,11 +62,11 @@ where
 
     /// # Safety
     /// * `ptr` must point to an existing `PqRcCell`.
-    unsafe fn from_prio_and_ptr(prio: Priority, mut ptr: NonNull<PqRcCell<T, Priority>>) -> Self {
+    unsafe fn from_prio_and_ptr(prio: Priority, ptr: NonNull<PqRcCell<T, Priority>>) -> Self {
         unsafe {
             // Because `ptr` refers to an existing `PqRcCell` and we're creating
             // a new `PqRc`, we **gotta** increment the count!
-            ptr.as_mut().incr_count(prio);
+            ptr.as_ref().incr_count(prio);
         }
 
         Self {

@@ -110,13 +110,13 @@ fn sentence_forward() -> Box<dyn Iterator<Item = CharList>> {
                         let d2 = d2.clone();
                         iter::once(
                             n2.cons(' ')
-                                .cons_str(d2)
+                                .cons_char_list(&d2)
                                 .cons(' ')
-                                .cons_str(v)
+                                .cons_char_list(&v)
                                 .cons(' ')
-                                .cons_str(n1)
+                                .cons_char_list(&n1)
                                 .cons(' ')
-                                .cons_str(d1),
+                                .cons_char_list(&d1),
                         )
                     })
                 })
@@ -129,7 +129,7 @@ fn simple_sentence_backwards() -> Box<dyn Iterator<Item = CharList>> {
     Box::new(noun().flat_map(move |n| {
         determiner().flat_map(move |d| {
             let n = n.clone();
-            iter::once(n.cons(' ').cons_str(d))
+            iter::once(n.cons(' ').cons_char_list(&d))
         })
     }))
 }
@@ -152,13 +152,13 @@ fn sentence_backward() -> Box<dyn Iterator<Item = CharList>> {
                         let n1 = n1.clone();
                         iter::once(
                             n2.cons(' ')
-                                .cons_str(d2)
+                                .cons_char_list(&d2)
                                 .cons(' ')
-                                .cons_str(v)
+                                .cons_char_list(&v)
                                 .cons(' ')
-                                .cons_str(n1)
+                                .cons_char_list(&n1)
                                 .cons(' ')
-                                .cons_str(d1),
+                                .cons_char_list(&d1),
                         )
                     })
                 })

@@ -1,6 +1,6 @@
 [package]
 name = "char-list"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 description = "A persistent string type with the same API as a linked-list of characters."
@@ -13,7 +13,7 @@ keywords = ["string", "prepend", "cons", "immutable", "persistent"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-front-vec = "0.0.7"
+front-vec = "0.0.8"
 embed-doc-image = "0.1.4"
 
 [dev-dependencies]
