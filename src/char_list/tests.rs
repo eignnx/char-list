@@ -5,26 +5,39 @@ use assert2::{assert, check, let_assert};
 use std::iter;
 
 #[test]
-fn mem_test_cdr_down() {
-    let s3: CharList = CharList::from("abc");
+fn car_cdr_then_cons() {
+    let lower_abc: CharList = "abc".into();
+    let_assert!(Some(('a', bc)) = lower_abc.car_cdr());
+    assert!(bc == "bc");
 
+    assert!(bc.backing_string().len() == 3);
+    drop(lower_abc);
+    assert!(bc.backing_string().len() == 2);
+
+    let upper_abc = bc.cons('A');
+    assert!(bc.backing_string().len() == 3);
+
+    let_assert!(Some(('A', bc)) = upper_abc.car_cdr());
+    assert!(bc == "bc");
+}
+
+#[test]
+fn mem_test_cdr_down() {
+    let s3: CharList = "abc".into();
     assert!(s3.backing_string().len() == 3);
 
-    let_assert!(Some((a, s2)) = s3.car_cdr());
-    assert!(a == 'a');
+    let_assert!(Some(('a', s2)) = s3.car_cdr());
     assert!(s2 == "bc");
 
     assert!(s3.backing_string().len() == 3);
 
-    let_assert!(Some((b, s1)) = s2.car_cdr());
-    assert!(b == 'b');
+    let_assert!(Some(('b', s1)) = s2.car_cdr());
     assert!(s1 == "c");
 
     drop(s3);
     assert!(s1.backing_string().len() == 2);
 
-    let_assert!(Some((c, s0)) = s1.car_cdr());
-    assert!(c == 'c');
+    let_assert!(Some(('c', s0)) = s1.car_cdr());
     assert!(s0.is_empty());
     assert!(s0 == "");
 

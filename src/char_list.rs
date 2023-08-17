@@ -140,10 +140,7 @@ impl CharList<()> {
     /// ```
     pub fn split_after_prefix<'a>(&'a self, prefix: impl Pattern<'a>) -> (&'a str, Self) {
         let seg_remainder = self.as_str().trim_start_matches(prefix);
-        if seg_remainder.len() < self.segment_len() {
-            return self.split_at(self.len() - seg_remainder.len());
-        }
-        todo!("search tail");
+        self.split_at(self.len() - seg_remainder.len())
     }
 
     /// Just like [`split_after_prefix`](char_list::CharList::split_after_prefix)
@@ -335,7 +332,8 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// ```
     /// # use char_list::CharList;
     /// # use assert2::assert;
-    /// let cl = CharList::<()>::from("Hello!");
+    /// use std::io::Read;
+    /// let cl = CharList::from("Hello!");
     /// let mut buf = String::new();
     /// cl.reader().read_to_string(&mut buf).expect("Can't fail");
     /// assert!(buf == "Hello!");
@@ -491,7 +489,7 @@ impl<Tail: CharListTail> CharList<Tail> {
 
     /// Returns an iterator over the characters in `self`.
     pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
-        self.backing_string().chars().chain(self.tail().chars())
+        self.segment_as_str().chars().chain(self.tail().chars())
     }
 
     /// # Safety
