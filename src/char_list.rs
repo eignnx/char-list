@@ -57,9 +57,9 @@ pub trait CharListTail: Clone + Default {
         self.len() == 0
     }
 
-    fn chars(&self) -> Box<dyn Iterator<Item = char>>;
+    fn chars<'a>(&'a self) -> Box<dyn Iterator<Item = char> + 'a>;
 
-    fn bytes(&self) -> Box<dyn ExactSizeIterator<Item = u8>>;
+    fn bytes<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = u8> + 'a>;
 
     fn next_char_list(&self) -> Option<CharList<Self>>;
 }
@@ -286,6 +286,7 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// Creates a `CharList` whose backing [`FrontString`](front_string::FrontString)
     /// begins with the capacity specified.
     pub fn with_capacity_and_tail(capacity: usize, tail: Tail) -> Self {
+        crate::log!("CharList<?>::with_capacity_and_tail({}, ..)", capacity);
         Self {
             data: PqRc::new(
                 StringRepr {
@@ -308,8 +309,15 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// Note: for `CharList<()>` (`()` is the default type parameter for
     /// `CharList`) this is the same as [`as_str`](CharList::as_str).
     pub fn segment_as_str(&self) -> &str {
+        // Memory Diagram:
+        //
+        // |<--------backing_string().capacity()----------->|
+        // [?????UNINIT????|***NOT MINE***|******SELF*******]
+        //                 |--seg_start-->|<-segment_len()->|
+        //                 |<----------slice.len()--------->|
         let slice: &str = self.backing_string().as_ref();
-        &slice[slice.len() - self.len()..]
+        let seg_start = slice.len() - self.segment_len();
+        &slice[seg_start..]
     }
 
     /// Returns a byte slice of this segment's portion of the string. Ignores
@@ -370,6 +378,16 @@ impl<Tail: CharListTail> CharList<Tail> {
     }
 
     /// Returns the length of this segment, ignoring any tail.
+    ///
+    /// # Example
+    /// If the underlying buffers looked like this:
+    ///
+    /// ```ignore
+    /// [?, ?, ?, 'a', 'b', 'c'] --> [?, ?, 'd', 'e', 'f']
+    /// ```
+    /// Then a `CharList` representing the string "cdef" would have a
+    /// `segment_len` of one (1). A `CharList` for "abcdef" would have
+    /// `segment_len` three (3).
     pub fn segment_len(&self) -> usize {
         PqRc::priority(&self.data)
     }
@@ -509,6 +527,7 @@ impl<Tail: CharListTail> CharList<Tail> {
 
     pub fn from_string_and_tail(s: impl Into<String>, tail: Tail) -> Self {
         let front_string: FrontString = FrontString::from(s.into());
+        crate::log!("CharList<?>::from_string_and_tail({:?}, ..)", &front_string);
         let priority = front_string.len();
         Self {
             data: PqRc::new(StringRepr { front_string, tail }, priority),
@@ -524,7 +543,7 @@ impl<Tail: CharListTail> CharList<Tail> {
         Self::from_string_and_tail(String::from_utf8_lossy(bytes).into_owned(), tail)
     }
 
-    fn bytes(&self) -> Bytes<Tail> {
+    pub fn bytes(&self) -> Bytes<Tail> {
         Bytes {
             char_list: self.clone(),
             offset_in_segment: 0,
@@ -579,21 +598,31 @@ impl<Tail: CharListTail> From<String> for CharList<Tail> {
 
 impl<Tail: CharListTail> fmt::Debug for CharList<Tail> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        crate::log!("+++ <CharList<?> as Debug>::fmt(&self)");
+        let mut cl = Some(self.clone());
         write!(f, "\"")?;
-        write!(f, "{}", self.segment_as_str())?;
-        while let Some(tail) = self.tail().next_char_list() {
-            write!(f, "{}", tail.segment_as_str())?;
+        while let Some(current) = cl {
+            crate::log!(
+                "(Debug::fmt)>>> current.segment_as_str() == {:?}",
+                current.segment_as_str()
+            );
+            write!(f, "{}", current.segment_as_str())?;
+            cl = current.tail().next_char_list();
         }
-        write!(f, "\"")
+        write!(f, "\"")?;
+        crate::log!("--- <CharList<?> as Debug>::fmt(&self)");
+        Ok(())
     }
 }
 
 impl<Tail: CharListTail> fmt::Display for CharList<Tail> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        crate::log!("+++ <CharList<?> as Display>::fmt(&self)");
         write!(f, "{}", self.segment_as_str())?;
         while let Some(tail) = self.tail().next_char_list() {
             write!(f, "{}", tail.segment_as_str())?;
         }
+        crate::log!("--- <CharList<?> as Display>::fmt(&self)");
         Ok(())
     }
 }
@@ -601,17 +630,27 @@ impl<Tail: CharListTail> fmt::Display for CharList<Tail> {
 impl<S, Tail> PartialEq<S> for CharList<Tail>
 where
     S: AsRef<str>,
-    Tail: CharListTail, // TODO: Relax `PartialEq` requirement?
+    Tail: CharListTail,
 {
     fn eq(&self, other: &S) -> bool {
+        crate::log!(
+            "begin <CharList<?> as PartialEq<str>>::eq(.., {:?})",
+            other.as_ref()
+        );
         let mut other = other.as_ref();
         let mut cl_opt = Some(self.clone());
         while let Some(cl) = cl_opt {
-            if cl.segment_len() > other.len() || cl.segment_as_str() != &other[..cl.segment_len()] {
+            let seg_len = cl.segment_len();
+            crate::log!(
+                "(PartialEq::eq)>>> current_seg(cl) ~= {:?}, other[..seg_len] ~= {:?}",
+                cl.segment_as_str(),
+                &other[..other.len().min(seg_len)]
+            );
+            if seg_len > other.len() || cl.segment_as_str() != &other[..seg_len] {
                 return false;
             }
-            other = &other[..cl.segment_len()];
-            cl_opt = cl.data.tail.next_char_list();
+            other = &other[seg_len..];
+            cl_opt = cl.tail().next_char_list();
         }
         true
     }

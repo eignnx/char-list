@@ -49,6 +49,18 @@ fn mem_test_cdr_down() {
 }
 
 #[test]
+fn segment_as_str() {
+    let hello: CharList = "Hello ".into();
+    let world: CharList = "world!".into();
+    let hello_world = world.cons_char_list(&hello);
+    assert!(hello_world == "Hello world!");
+    assert!(world.segment_len() == "world!".len());
+    assert!(world.backing_string().len() == "Hello world!".len());
+    assert!(world.segment_as_str() == "world!");
+    assert!(hello_world.segment_as_str() == "Hello world!");
+}
+
+#[test]
 fn mem_test_cons_up() {
     let empty: CharList = CharList::new();
     assert!(empty.is_empty());

@@ -23,6 +23,7 @@ lazy_static = "1.4.0"
 
 [features]
 doc-images = []
+trace-verbose = []
 
 [package.metadata.docs.rs]
 # docs.rs uses a nightly compiler, so by instructing it to use our `doc-images` feature we

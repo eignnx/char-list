@@ -160,6 +160,8 @@
 //!
 
 mod char_list;
+mod linked;
+mod log;
 mod pq_rc;
 
 pub use crate::char_list::*;
