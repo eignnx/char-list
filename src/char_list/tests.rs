@@ -1,4 +1,5 @@
 use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, reset_counts, total_new_count};
+use test_log::test;
 
 use super::CharList;
 use assert2::{assert, check, let_assert};
@@ -257,6 +258,7 @@ test_nonterminal_expansions! {
 mod parser_use_case {
     use super::*;
     use assert2::assert;
+    use test_log::test;
 
     fn character(target: char) -> impl Fn(&CharList) -> Option<(char, CharList)> {
         move |i| {

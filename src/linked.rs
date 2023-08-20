@@ -1,6 +1,7 @@
 use std::{cell::OnceCell, fmt, rc::Rc};
 
 use front_vec::FrontString;
+use tracing::{instrument, trace};
 
 use crate::{bytes::Bytes, char_list::CharList, CharListTail};
 
@@ -39,18 +40,19 @@ impl LinkedCharList {
         Self { segment }
     }
 
+    #[instrument(skip(self), ret)]
     pub fn len(&self) -> Option<usize> {
         let mut segment = Some(self.segment.clone());
         let mut len = 0;
         while let Some(seg) = segment {
-            crate::log!("(LinkedCharList::len) local@len == {len}");
+            trace!("accumulated len == {len}");
             len += seg.segment_len();
             segment = match seg.tail().get() {
                 Some(next) => next.clone().map(|lcl| lcl.segment),
                 None => return None,
             };
         }
-        crate::log!("(LinkedCharList::len) local@len == {len}");
+        trace!("accumulated len == {len}");
         Some(len)
     }
 
@@ -91,8 +93,8 @@ impl LinkedCharList {
 
 impl CharListTail for LinkedTail {
     #[track_caller]
+    #[instrument(ret)]
     fn len(&self) -> usize {
-        crate::log!("begin <LinkedTail as CharListTail>::len()");
         match self.get() {
             Some(Some(tail)) => tail.len().unwrap(),
             _ => panic!("No correct length for LinkedCharList with uninstantiated tail"),
@@ -141,11 +143,8 @@ impl From<&str> for LinkedCharList {
 }
 
 impl<S: AsRef<str>> PartialEq<S> for LinkedCharList {
+    #[instrument(ret, fields(self = ?self, other = ?other.as_ref()))]
     fn eq(&self, other: &S) -> bool {
-        crate::log!(
-            "begin <LinkedCharList as PartialEq<str>>::eq(.., {:?})",
-            other.as_ref()
-        );
         self.segment == other.as_ref()
     }
 }
