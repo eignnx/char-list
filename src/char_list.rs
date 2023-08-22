@@ -583,7 +583,8 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// be cloned, it's `reserve_front` method called, and a new `CharList`
     /// returned.
     #[must_use = "`CharList::reserving` returns a new `CharList`, it doesn't mutate the current one in place."]
-    pub fn reserving(&self, additional_bytes: usize) -> Self {
+    #[allow(dead_code)]
+    fn reserving(&self, additional_bytes: usize) -> Self {
         let pqrc = unsafe {
             PqRc::mutate_or_clone_raising_prio(
                 &self.data,
