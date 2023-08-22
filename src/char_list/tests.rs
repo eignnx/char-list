@@ -390,3 +390,26 @@ fn test_polynomial_degree() {
         .collect();
     assert!(polynomial_degree(&ys) == Some(4));
 }
+
+#[test]
+fn from_io_readable() {
+    use std::io::BufReader;
+    let text = "asdfasdfasdfasdfasdfasfasdfadsfasdfasdf";
+    let s = text.to_string();
+    let mut r = BufReader::new(std::io::Cursor::new(s));
+    let cl: CharList = CharList::from_io_readable(&mut r).unwrap();
+    assert!(cl == text);
+}
+
+#[test]
+fn reserving_test() {
+    let old_s: CharList = "asdf".into();
+    let old_cap = old_s.backing_string().capacity();
+    let new_s_1 = old_s.reserving(100);
+    assert!(new_s_1.backing_string().capacity() == old_cap + 100);
+
+    let _new_s_2 = old_s.cons_str("qwerty");
+
+    let new_s_3 = old_s.reserving(20);
+    assert!(new_s_3.backing_string().capacity() == old_cap + 20);
+}

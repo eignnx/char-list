@@ -7,6 +7,7 @@ mod tests;
 use std::{
     fmt,
     hash::Hash,
+    io::{self, Read},
     ops::{Add, AddAssign},
     str::{pattern::Pattern, Utf8Error},
     string::FromUtf8Error,
@@ -46,6 +47,7 @@ pub struct CharList<Tail: CharListTail = ()> {
 
 /// Helper struct. Allows users of `CharList` to (optionally) store extra data
 /// in the allocated `PqRcCell`.
+#[derive(Clone)]
 struct StringRepr<Tail: CharListTail> {
     front_string: FrontString,
     tail: Tail,
@@ -549,11 +551,54 @@ impl<Tail: CharListTail> CharList<Tail> {
         Self::from_string_and_tail(String::from_utf8_lossy(bytes).into_owned(), tail)
     }
 
+    pub fn from_io_readable(readable: &mut impl Read) -> io::Result<Self> {
+        // TODO: optimize
+        let mut buf = String::new();
+        let _ = readable.read_to_string(&mut buf)?;
+        Ok(Self::from(buf))
+    }
+
+    pub fn prepend_from_bytes_iter(
+        &self,
+        it: impl ExactSizeIterator<Item = u8>,
+    ) -> Result<Self, FromUtf8Error> {
+        let v = it.collect::<Vec<_>>();
+        let s = String::from_utf8(v)?;
+        Ok(self.cons_str(s))
+    }
+
     pub fn bytes(&self) -> Bytes<Tail> {
         Bytes {
             char_list: self.clone(),
             offset_in_segment: 0,
         }
+    }
+
+    /// Returns a `CharList` with the same data as `self` but with an
+    /// underlying `FrontString` buffer whose capacity is
+    /// `additional_bytes + self.segment_len()`.
+    ///
+    /// If this `CharList` has highest priority, the underlying `FrontString`'s
+    /// `reserve_front` method will be called. Otherwise, the `FrontString` will
+    /// be cloned, it's `reserve_front` method called, and a new `CharList`
+    /// returned.
+    #[must_use = "`CharList::reserving` returns a new `CharList`, it doesn't mutate the current one in place."]
+    pub fn reserving(&self, additional_bytes: usize) -> Self {
+        let pqrc = unsafe {
+            PqRc::mutate_or_clone_raising_prio(
+                &self.data,
+                |mut_s| {
+                    mut_s.front_string.reserve_front(additional_bytes);
+                    0
+                },
+                |ref_s| {
+                    let mut s = ref_s.clone();
+                    s.front_string.reserve_front(additional_bytes);
+                    (0, s)
+                },
+            )
+        };
+        Self { data: pqrc }
     }
 }
 
