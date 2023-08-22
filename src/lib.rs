@@ -160,9 +160,9 @@
 //!
 
 mod char_list;
-mod linked;
+pub mod linked;
 mod pq_rc;
 
 pub use crate::char_list::*;
 
-pub type CharList = crate::char_list::CharList<()>;
+pub type CharListSegment = crate::char_list::CharList<()>;

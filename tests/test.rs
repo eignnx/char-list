@@ -3,28 +3,28 @@
 use assert2::{assert, check, let_assert};
 use test_log::test;
 
-use char_list::CharList;
+use char_list::CharListSegment;
 
 #[test]
 fn construct_destruct() {
-    CharList::new();
+    CharListSegment::new();
 }
 
 #[test]
 fn construct_cmp() {
-    let s = CharList::new();
+    let s = CharListSegment::new();
     assert!(s == "");
 }
 
 #[test]
 fn cons_1() {
-    let s = CharList::new().cons('a');
+    let s = CharListSegment::new().cons('a');
     assert!(s == "a");
 }
 
 #[test]
 fn cons_2() {
-    let s0 = CharList::new();
+    let s0 = CharListSegment::new();
     let s1 = s0.cons('z');
     let s2 = s1.cons('y');
     let s3 = s2.cons('x');
@@ -41,7 +41,7 @@ fn cons_2() {
 #[test]
 fn cons_hirigana() {
     let entire = "いろはにほへとちりぬるを";
-    let mut s = CharList::new();
+    let mut s = CharListSegment::new();
     for ch in entire.chars().rev() {
         s = s.cons(ch);
     }
@@ -51,13 +51,13 @@ fn cons_hirigana() {
 #[test]
 fn from_str() {
     let text = "いろはにほへとちりぬるを";
-    let s = CharList::from(text);
+    let s = CharListSegment::from(text);
     assert!(s == text);
 }
 
 #[test]
 fn car_cdr_simple() {
-    let s = CharList::from("a");
+    let s = CharListSegment::from("a");
     let_assert!(Some((head, tail)) = s.car_cdr(), "s = {s:?}");
     check!(head == 'a');
     check!(tail == "");
@@ -65,7 +65,7 @@ fn car_cdr_simple() {
 
 #[test]
 fn car_cdr_long() {
-    let abc = CharList::from("abc");
+    let abc = CharListSegment::from("abc");
 
     let_assert!(Some((a, bc)) = abc.car_cdr());
     assert!(a == 'a');
@@ -85,7 +85,7 @@ fn car_cdr_long() {
 
 #[test]
 fn cons_str_backwards() {
-    let mut sentence = CharList::new();
+    let mut sentence = CharListSegment::new();
 
     const WORDS: &[&str] = &["In", "the", "town", "where", "I", "was", "born"];
 
@@ -99,7 +99,7 @@ fn cons_str_backwards() {
 
 #[test]
 fn tree_of_char_lists() {
-    let mammal = CharList::from("mammal");
+    let mammal = CharListSegment::from("mammal");
     {
         let dog = mammal.cons_str("dog < ");
         let poodle = dog.cons_str("poodle < ");
