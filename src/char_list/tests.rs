@@ -8,7 +8,7 @@ use std::iter;
 #[test]
 fn car_cdr_then_cons() {
     let lower_abc: CharList = "abc".into();
-    let_assert!(Some(('a', bc)) = lower_abc.car_cdr());
+    let_assert!(Ok(Some(('a', bc))) = lower_abc.car_cdr());
     assert!(bc == "bc");
 
     assert!(bc.backing_string().len() == 3);
@@ -18,7 +18,7 @@ fn car_cdr_then_cons() {
     let upper_abc = bc.cons('A');
     assert!(bc.backing_string().len() == 3);
 
-    let_assert!(Some(('A', bc)) = upper_abc.car_cdr());
+    let_assert!(Ok(Some(('A', bc))) = upper_abc.car_cdr());
     assert!(bc == "bc");
 }
 
@@ -27,22 +27,22 @@ fn mem_test_cdr_down() {
     let s3: CharList = "abc".into();
     assert!(s3.backing_string().len() == 3);
 
-    let_assert!(Some(('a', s2)) = s3.car_cdr());
+    let_assert!(Ok(Some(('a', s2))) = s3.car_cdr());
     assert!(s2 == "bc");
 
     assert!(s3.backing_string().len() == 3);
 
-    let_assert!(Some(('b', s1)) = s2.car_cdr());
+    let_assert!(Ok(Some(('b', s1))) = s2.car_cdr());
     assert!(s1 == "c");
 
     drop(s3);
     assert!(s1.backing_string().len() == 2);
 
-    let_assert!(Some(('c', s0)) = s1.car_cdr());
-    assert!(s0.is_empty());
+    let_assert!(Ok(Some(('c', s0))) = s1.car_cdr());
+    assert!(s0.is_empty().unwrap());
     assert!(s0 == "");
 
-    assert!(s0.car_cdr() == None);
+    assert!(matches!(s0.car_cdr(), Ok(None)));
 
     drop(s2);
     drop(s1);
@@ -64,7 +64,7 @@ fn segment_as_str() {
 #[test]
 fn mem_test_cons_up() {
     let empty: CharList = CharList::new();
-    assert!(empty.is_empty());
+    assert!(empty.is_empty().unwrap());
     assert!(empty.backing_string() == &"");
 
     let icon = empty.cons_str("icon");
@@ -262,7 +262,7 @@ mod parser_use_case {
 
     fn character(target: char) -> impl Fn(&CharList) -> Option<(char, CharList)> {
         move |i| {
-            let (ch, i) = i.car_cdr()?;
+            let (ch, i) = i.car_cdr().unwrap()?;
             (ch == target).then_some((ch, i))
         }
     }
@@ -274,7 +274,7 @@ mod parser_use_case {
             let mut i = i.clone();
             let mut ts = vec![];
 
-            while !i.is_empty() {
+            while !i.is_empty().unwrap() {
                 match p(&i) {
                     Some((t, rem)) => {
                         ts.push(t);

@@ -1,27 +1,23 @@
-pub mod bytes;
-pub mod reader;
-
 #[cfg(test)]
 mod tests;
 
 use std::{
+    convert::Infallible,
     fmt,
     hash::Hash,
     io::{self, Read},
-    ops::{Add, AddAssign},
+    ops::Add,
     str::{pattern::Pattern, Utf8Error},
     string::FromUtf8Error,
 };
 
 use front_vec::FrontString;
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 
-use crate::{
-    char_list::{bytes::Bytes, reader::CharListReader},
-    pq_rc::PqRc,
-};
+use crate::pq_rc::PqRc;
 
 type Len = usize;
+pub type NoTail = ();
 
 /// An efficient string type with the same API as a linked-list of characters.
 ///
@@ -32,16 +28,8 @@ type Len = usize;
 ///    into its first character and everything except the first character.
 ///
 /// # Note: `CharList: !Deref<Target=str>`
-/// This type specifically does **not** implement `Deref<Target=str>`. If you
-/// need a `&str`, use the [`as_str`](crate::CharList::as_str) method or `as_ref`.
-///
-/// Essentially, I don't want users to realize they need to call `cons` but
-/// only have a `&str`. Then the only way to proceed is to call `CharList::from`
-/// and allocate a **new** backing string.
-///
-/// This restriction may be relaxed in the future (let me know if you have a good
-/// argument for allowing this, I'm flexible 🙂).
-pub struct CharList<Tail: CharListTail = ()> {
+/// This type specifically does **not** implement `Deref<Target=str>`.
+pub struct CharList<Tail: CharListTail = NoTail> {
     data: PqRc<StringRepr<Tail>, Len>,
 }
 
@@ -54,35 +42,33 @@ struct StringRepr<Tail: CharListTail> {
 }
 
 pub trait CharListTail: Clone + Default {
-    fn len(&self) -> usize;
+    type Err: fmt::Debug + fmt::Display;
 
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
+    /// Returns `Ok(Some(..))` if there is a next `CharList`. If there's no next
+    /// `CharList`, returns `Ok(None)`. If an answer can't be given, returns
+    /// `Err(..)`.
+    fn next_char_list(&self) -> Result<Option<CharList<Self>>, Self::Err>;
 
-    fn chars<'a>(&'a self) -> Box<dyn Iterator<Item = char> + 'a>;
+    fn len(&self) -> Result<usize, Self::Err>;
 
-    fn bytes<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = u8> + 'a>;
-
-    fn next_char_list(&self) -> Option<CharList<Self>>;
-}
-
-impl CharListTail for () {
-    fn len(&self) -> usize {
-        0
-    }
-    fn chars(&self) -> Box<dyn Iterator<Item = char>> {
-        Box::new(std::iter::empty())
-    }
-    fn bytes(&self) -> Box<dyn ExactSizeIterator<Item = u8>> {
-        Box::new(std::iter::empty())
-    }
-    fn next_char_list(&self) -> Option<CharList<Self>> {
-        None
+    fn is_empty(&self) -> Result<bool, Self::Err> {
+        Ok(self.len()? == 0)
     }
 }
 
-impl CharList<()> {
+impl CharListTail for NoTail {
+    type Err = Infallible;
+
+    fn next_char_list(&self) -> Result<Option<CharList<Self>>, Infallible> {
+        Ok(None)
+    }
+
+    fn len(&self) -> Result<usize, Self::Err> {
+        Ok(0)
+    }
+}
+
+impl CharList<NoTail> {
     /// Extracts a string slice which references `self`'s entire view of the
     /// underlying text.
     ///
@@ -143,7 +129,7 @@ impl CharList<()> {
     /// ```
     pub fn split_after_prefix<'a>(&'a self, prefix: impl Pattern<'a>) -> (&'a str, Self) {
         let seg_remainder = self.as_str().trim_start_matches(prefix);
-        self.split_at(self.len() - seg_remainder.len())
+        self.split_at(self.len().expect("infallible") - seg_remainder.len())
     }
 
     /// Just like [`split_after_prefix`](char_list::CharList::split_after_prefix)
@@ -223,7 +209,7 @@ impl CharList<()> {
     /// ```
     #[track_caller]
     pub fn split_at(&self, split_index: usize) -> (&str, CharList) {
-        if split_index > self.len() {
+        if split_index > self.len().expect("infallible") {
             panic!("given range begins beyond end of the `CharList`");
         }
 
@@ -234,7 +220,10 @@ impl CharList<()> {
         let prefix = &self.as_str()[..split_index];
 
         let suffix = Self {
-            data: PqRc::clone_with_priority(&self.data, self.len() - split_index),
+            data: PqRc::clone_with_priority(
+                &self.data,
+                self.len().expect("infallible") - split_index,
+            ),
         };
 
         (prefix, suffix)
@@ -272,16 +261,6 @@ impl<Tail: CharListTail> CharList<Tail> {
         Self::from_string_and_tail(s, Default::default())
     }
 
-    /// Creates an empty `CharList`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use char_list::CharList;
-    /// # use assert2::assert;
-    /// let empty = CharList::new();
-    /// assert!(empty.len() == 0);
-    /// ```
     pub fn new_with_tail(tail: Tail) -> Self {
         Self::with_capacity_and_tail(0, tail)
     }
@@ -332,29 +311,6 @@ impl<Tail: CharListTail> CharList<Tail> {
         self.segment_as_str().as_bytes()
     }
 
-    /// Returns a [`CharListReader`](crate::char_list::reader::CharListReader)
-    /// which implements `std::io::Read` and which walks over the entire
-    /// `CharList` including its tail.
-    ///
-    /// This is one of the best ways to get data out of a `CharList`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use char_list::CharList;
-    /// # use assert2::assert;
-    /// use std::io::Read;
-    /// let cl = CharList::from("Hello!");
-    /// let mut buf = String::new();
-    /// cl.reader().read_to_string(&mut buf).expect("Can't fail");
-    /// assert!(buf == "Hello!");
-    /// ```
-    pub fn reader(&self) -> CharListReader<Tail> {
-        CharListReader {
-            char_list: Some(self.clone()),
-        }
-    }
-
     /// Returns the length of `self`.
     ///
     /// This length is in bytes, not [`char`]s or graphemes. In other words,
@@ -370,15 +326,27 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// # use char_list::CharList;
     /// # use assert2::assert;
     /// let foo = CharList::from("foo");
-    /// assert!(foo.len() == 3);
+    /// assert!(foo.len() == Ok(3));
     ///
     /// let fancy_foo = CharList::from("ƒoo"); // fancy f!
-    /// assert!(fancy_foo.len() == 4);
+    /// assert!(fancy_foo.len() == Ok(4));
     /// assert!(fancy_foo.chars().count() == 3);
     /// ```
-    #[instrument(ret, skip(self), fields(repr = self.to_string()))]
-    pub fn len(&self) -> usize {
-        self.segment_len() + self.tail().len()
+    #[instrument(ret, skip(self), fields(repr = %self))]
+    pub fn len(&self) -> Result<usize, Tail::Err> {
+        Ok(self.segment_len() + self.tail().len()?)
+    }
+
+    /// Returns as much of the length of the string as is possible to know right
+    /// now.
+    pub fn partial_len(&self) -> usize {
+        let mut len = 0;
+        let mut segment = Ok(Some(self.clone()));
+        while let Ok(Some(seg)) = segment {
+            len += seg.segment_len();
+            segment = seg.tail().next_char_list();
+        }
+        len
     }
 
     /// Returns the length of this segment, ignoring any tail.
@@ -397,8 +365,16 @@ impl<Tail: CharListTail> CharList<Tail> {
         PqRc::priority(&self.data)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.segment_len() == 0 && self.tail().next_char_list().is_none()
+    pub fn is_empty(&self) -> Result<bool, Tail::Err> {
+        if self.segment_len() != 0 {
+            return Ok(false);
+        }
+
+        let Some(tail) = self.tail().next_char_list()? else {
+            return Ok(true);
+        };
+
+        tail.len().map(|l| l == 0)
     }
 
     /// Creates a new [`CharList`] which is a copy of `self`, but with the
@@ -457,29 +433,38 @@ impl<Tail: CharListTail> CharList<Tail> {
     }
 
     pub fn cons_char_list(&self, prefix: &Self) -> Self {
-        let prefix_len = prefix.len();
-        Self {
-            data: unsafe {
-                PqRc::mutate_or_clone_raising_prio(
-                    &self.data,
-                    |repr_mut| {
+        let prefix_len = prefix.partial_len();
+
+        let pqrc = unsafe {
+            PqRc::mutate_or_clone_raising_prio(
+                &self.data,
+                |repr_mut| {
+                    let mut segment = Ok(Some(prefix.clone()));
+                    while let Ok(Some(seg)) = segment {
                         repr_mut
                             .front_string
-                            .prepend_from_bytes_iter(prefix.bytes());
-                        prefix_len
-                    },
-                    |_repr_ref| {
-                        let mut new_string = FrontString::from(self.segment_as_str());
-                        new_string.prepend_from_bytes_iter(prefix.bytes());
-                        let repr = StringRepr {
-                            front_string: new_string,
-                            tail: self.tail().clone(),
-                        };
-                        (prefix_len, repr)
-                    },
-                )
-            },
-        }
+                            .prepend_from_bytes_iter(seg.segment_as_bytes().iter().copied());
+                        segment = seg.tail().next_char_list();
+                    }
+                    prefix_len
+                },
+                |_repr_ref| {
+                    let mut new_string = FrontString::from(self.segment_as_str());
+                    let mut segment = Ok(Some(prefix.clone()));
+                    while let Ok(Some(seg)) = segment {
+                        new_string.prepend_from_bytes_iter(seg.segment_as_bytes().iter().copied());
+                        segment = seg.tail().next_char_list();
+                    }
+                    let repr = StringRepr {
+                        front_string: new_string,
+                        tail: self.tail().clone(),
+                    };
+                    (prefix_len, repr)
+                },
+            )
+        };
+
+        Self { data: pqrc }
     }
 
     /// Returns a pair containing the first character of `self` and a
@@ -503,18 +488,15 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// assert!(empty.car_cdr() == None);
     /// ```
     #[track_caller]
-    pub fn car_cdr(&self) -> Option<(char, Self)> {
-        let first_char = self.chars().next()?;
-        let new_len = self.len() - first_char.len_utf8();
+    pub fn car_cdr(&self) -> Result<Option<(char, Self)>, Tail::Err> {
+        let Some(first_char) = self.segment_as_str().chars().next() else {
+            return Ok(None);
+        };
+        let new_len = self.segment_len() - first_char.len_utf8();
         let cdr = Self {
             data: PqRc::clone_with_priority(&self.data, new_len),
         };
-        Some((first_char, cdr))
-    }
-
-    /// Returns an iterator over the characters in `self`.
-    pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
-        self.segment_as_str().chars().chain(self.tail().chars())
+        Ok(Some((first_char, cdr)))
     }
 
     /// # Safety
@@ -567,13 +549,6 @@ impl<Tail: CharListTail> CharList<Tail> {
         Ok(self.cons_str(s))
     }
 
-    pub fn bytes(&self) -> Bytes<Tail> {
-        Bytes {
-            char_list: self.clone(),
-            offset_in_segment: 0,
-        }
-    }
-
     /// Returns a `CharList` with the same data as `self` but with an
     /// underlying `FrontString` buffer whose capacity is
     /// `additional_bytes + self.segment_len()`.
@@ -611,15 +586,14 @@ impl<Tail: CharListTail> Drop for CharList<Tail> {
         // truncated to the length of the next longest (if any) `CharList` which
         // shares ownership of the `FrontString`.
         unsafe {
-            PqRc::with_inner_lowering_prio(&self.data, |inner| match inner {
-                None => (),
-                Some(repr) => {
-                    let Some(next_highest) = PqRc::next_highest_priority(&self.data) else {
-                        return;
-                    };
-                    debug_assert!(next_highest <= self.len());
-                    repr.front_string.truncate(next_highest);
-                }
+            PqRc::with_inner_lowering_prio(&self.data, |inner| {
+                let Some(repr) = inner else {
+                    return;
+                };
+                let Some(next_highest) = PqRc::next_highest_priority(&self.data) else {
+                    return;
+                };
+                repr.front_string.truncate(next_highest);
             })
         }
     }
@@ -656,17 +630,32 @@ impl<Tail: CharListTail> fmt::Debug for CharList<Tail> {
         while let Some(current) = cl {
             trace!("current.segment_as_str() == {:?}", current.segment_as_str());
             write!(f, "{}", current.segment_as_str())?;
-            cl = current.tail().next_char_list();
+            cl = match current.tail().next_char_list() {
+                Ok(next) => next,
+                Err(err) => {
+                    error!("Can't Debug::fmt(CharList) because of error: {err:?}");
+                    return write!(f, "{{{err:?}}}\"");
+                }
+            };
         }
         write!(f, "\"")
     }
 }
 
 impl<Tail: CharListTail> fmt::Display for CharList<Tail> {
+    #[instrument(skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut cl = Some(self.clone());
         write!(f, "{}", self.segment_as_str())?;
-        while let Some(tail) = self.tail().next_char_list() {
+        while let Some(tail) = cl {
             write!(f, "{}", tail.segment_as_str())?;
+            cl = match self.tail().next_char_list() {
+                Ok(next) => next,
+                Err(err) => {
+                    error!("Can't Display::fmt(CharList) because of error: {err:?}");
+                    return write!(f, "{err}");
+                }
+            };
         }
         Ok(())
     }
@@ -692,22 +681,78 @@ where
                 return false;
             }
             other = &other[seg_len..];
-            cl_opt = cl.tail().next_char_list();
+            cl_opt = match cl.tail().next_char_list() {
+                Ok(next) => next,
+                Err(err) => {
+                    error!("Can't PartialOrd::cmp due to error: {err:?}");
+                    panic!("Can't PartialOrd::cmp due to error: {err:?}");
+                }
+            };
         }
         true
     }
 }
 
-impl<Tail> PartialEq<CharList<Tail>> for CharList<Tail>
-where
-    Tail: CharListTail,
-{
-    fn eq(&self, other: &CharList<Tail>) -> bool {
-        self.bytes().eq(other.bytes())
-    }
-}
+// impl<Tail> PartialEq<CharList<Tail>> for CharList<Tail>
+// where
+//     Tail: CharListTail,
+// {
+//     /// For non-panicking version, use `partial_cmp`.
+//     fn eq(&self, other: &CharList<Tail>) -> bool {
+//         self.partial_cmp(other).unwrap().is_eq()
+//     }
+// }
 
-impl<Tail: CharListTail> Eq for CharList<Tail> {}
+/// In general, a `CharList` does not have reflexive equality.
+///
+/// # Example
+///
+/// In Prolog, a partial string looks like this:
+///
+/// ```prolog
+/// -? Partial = [a, b, c | Tail].
+/// ```
+///
+/// If later `Tail` is instantiated, then we have two times at which `Partial`
+/// is not ***symbolically*** equal to itself i.e.
+///
+/// ```prolog
+/// ?- [a, b, c | Tail] \== [a, b, c, d, e, f].
+/// ```
+// impl Eq for CharList<NoTail> {}
+
+// impl<Tail> PartialOrd for CharList<Tail>
+// where
+//     Tail: CharListTail,
+// {
+//     #[instrument(skip(self, other))]
+//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+//         use std::cmp::Ordering::*;
+
+//         let mut it1 = self.chars();
+//         let mut it2 = other.chars();
+
+//         loop {
+//             return match (it1.next(), it2.next()) {
+//                 (None, None) => Some(Equal),
+
+//                 (None, Some(Ok(_))) => Some(Less),
+//                 (Some(Ok(_)), None) => Some(Greater),
+//                 (Some(Ok(c1)), Some(Ok(c2))) => match c1.cmp(&c2) {
+//                     Equal => continue,
+//                     ord => Some(ord),
+//                 },
+
+//                 // If an error occurred in getting the tail, comparison is not
+//                 // possible.
+//                 (Some(Err(e)), _) | (_, Some(Err(e))) => {
+//                     error!("Can't PartialOrd::cmp due to error: {e:?}");
+//                     None
+//                 }
+//             };
+//         }
+//     }
+// }
 
 impl<S, Tail> PartialOrd<S> for CharList<Tail>
 where
@@ -720,39 +765,6 @@ where
     }
 }
 
-impl<Tail> PartialOrd for CharList<Tail>
-where
-    Tail: CharListTail,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<Tail> Ord for CharList<Tail>
-where
-    Tail: CharListTail,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering::*;
-
-        let mut it1 = self.chars();
-        let mut it2 = other.chars();
-
-        loop {
-            return match (it1.next(), it2.next()) {
-                (None, None) => Equal,
-                (None, Some(_)) => Less,
-                (Some(_), None) => Greater,
-                (Some(c1), Some(c2)) => match c1.cmp(&c2) {
-                    Equal => continue,
-                    ord => ord,
-                },
-            };
-        }
-    }
-}
-
 impl<Tail> Hash for CharList<Tail>
 where
     Tail: CharListTail,
@@ -761,7 +773,13 @@ where
         let mut cl_opt = Some(self.clone());
         while let Some(cl) = cl_opt {
             cl.segment_as_str().hash(state);
-            cl_opt = cl.data.tail.next_char_list();
+            cl_opt = match cl.data.tail.next_char_list() {
+                Ok(next) => next,
+                Err(err) => {
+                    error!("Can't PartialOrd::cmp due to error: {err:?}");
+                    panic!("Can't PartialOrd::cmp due to error: {err:?}");
+                }
+            };
         }
     }
 }
@@ -781,17 +799,10 @@ impl<Tail: CharListTail> FromIterator<char> for CharList<Tail> {
     }
 }
 
-// TODO: Can this be generalized from CharList<()> to CharList<Tail>?
-impl Add<CharList<()>> for CharList<()> {
+// TODO: Can this be generalized from CharList<NoTail> to CharList<Tail>?
+impl Add<CharList<NoTail>> for CharList<NoTail> {
     type Output = CharList<()>;
     fn add(self, rhs: CharList<()>) -> Self::Output {
         rhs.cons_str(self.as_str())
-    }
-}
-
-impl<Tail: CharListTail> AddAssign<CharList<Tail>> for String {
-    fn add_assign(&mut self, rhs: CharList<Tail>) {
-        self.reserve(rhs.len());
-        self.extend(rhs.chars());
     }
 }

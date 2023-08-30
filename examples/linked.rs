@@ -3,11 +3,12 @@ use std::{cell::OnceCell, fmt, rc::Rc};
 use front_vec::FrontString;
 use tracing::{instrument, trace};
 
-use crate::{bytes::Bytes, char_list::CharList, CharListTail};
+use char_list::{CharList, CharListTail};
 
-type LinkedTail = Rc<OnceCell<Option<LinkedCharList>>>;
+#[derive(Debug, Default, Clone)]
+pub struct LinkedTail(Rc<OnceCell<Option<LinkedCharList>>>);
 
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Clone)]
 pub struct LinkedCharList {
     segment: CharList<LinkedTail>,
 }
@@ -18,7 +19,7 @@ impl fmt::Debug for LinkedCharList {
         write!(f, "{}", self.segment_as_str())?;
         let mut seg = self.segment.clone();
         for _ in 0..10 {
-            match seg.tail().get() {
+            match seg.tail().0.get() {
                 Some(Some(tail)) => {
                     write!(f, "{}", tail.segment_as_str())?;
                     seg = tail.segment.clone();
@@ -41,27 +42,23 @@ impl LinkedCharList {
     }
 
     #[instrument(skip(self), ret)]
-    pub fn len(&self) -> Option<usize> {
+    pub fn len(&self) -> Result<usize, InstantiationError> {
         let mut segment = Some(self.segment.clone());
         let mut len = 0;
         while let Some(seg) = segment {
             trace!("accumulated len == {len}");
             len += seg.segment_len();
-            segment = match seg.tail().get() {
+            segment = match seg.tail().0.get() {
                 Some(next) => next.clone().map(|lcl| lcl.segment),
-                None => return None,
+                None => return Err(InstantiationError),
             };
         }
         trace!("accumulated len == {len}");
-        Some(len)
+        Ok(len)
     }
 
-    pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
-        self.segment.chars()
-    }
-
-    pub fn bytes(&self) -> Bytes<LinkedTail> {
-        self.segment.bytes()
+    pub fn is_empty(&self) -> Result<bool, InstantiationError> {
+        Ok(self.len()? == 0)
     }
 
     pub fn tail(&self) -> &LinkedTail {
@@ -91,38 +88,35 @@ impl LinkedCharList {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct InstantiationError;
+
+impl fmt::Display for InstantiationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Instantiation error: Tail is not sufficiently instantiated"
+        )
+    }
+}
+
 impl CharListTail for LinkedTail {
+    type Err = InstantiationError;
+
     #[track_caller]
     #[instrument(ret)]
-    fn len(&self) -> usize {
-        match self.get() {
-            Some(Some(tail)) => tail.len().unwrap(),
-            _ => panic!("No correct length for LinkedCharList with uninstantiated tail"),
+    fn len(&self) -> Result<usize, Self::Err> {
+        match self.0.get() {
+            Some(Some(tail)) => tail.len(),
+            _ => Err(InstantiationError),
         }
     }
 
-    fn chars(&self) -> Box<dyn Iterator<Item = char> + '_> {
-        match self.get() {
-            Some(Some(tail)) => Box::new(tail.chars()),
-            Some(None) => Box::new(std::iter::empty()),
-            None => Box::new(std::iter::once_with(|| {
-                panic!("Cannot get chars from an uninstantiated tail")
-            })),
-        }
-    }
-
-    fn bytes(&self) -> Box<dyn ExactSizeIterator<Item = u8> + '_> {
-        match self.get() {
-            Some(Some(tail)) => Box::new(tail.bytes()),
-            Some(None) => Box::new(std::iter::empty()),
-            None => Box::new(std::iter::once_with(|| {
-                panic!("Cannot get bytes from an uninstantiated tail")
-            })),
-        }
-    }
-
-    fn next_char_list(&self) -> Option<CharList<Self>> {
-        self.get()?.clone().map(|s| s.segment)
+    fn next_char_list(&self) -> Result<Option<CharList<Self>>, Self::Err> {
+        let Some(ground) = self.0.get() else {
+            return Ok(None);
+        };
+        Ok(ground.clone().map(|s| s.segment))
     }
 }
 
@@ -137,7 +131,7 @@ impl From<&str> for LinkedCharList {
     fn from(s: &str) -> Self {
         Self::from(CharList::from_string_and_tail(
             s,
-            OnceCell::from(None).into(),
+            LinkedTail(OnceCell::from(None).into()),
         ))
     }
 }
@@ -207,3 +201,5 @@ mod tests {
         assert!(abc == "AbcDefHijKlm");
     }
 }
+
+fn main() {}

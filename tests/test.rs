@@ -28,13 +28,13 @@ fn cons_2() {
     let s1 = s0.cons('z');
     let s2 = s1.cons('y');
     let s3 = s2.cons('x');
-    assert!(s0.len() == 0);
+    assert!(s0.len().unwrap() == 0);
     assert!(s0 == "");
-    assert!(s1.len() == 1);
+    assert!(s1.len().unwrap() == 1);
     assert!(s1 == "z");
-    assert!(s2.len() == 2);
+    assert!(s2.len().unwrap() == 2);
     assert!(s2 == "yz");
-    assert!(s3.len() == 3);
+    assert!(s3.len().unwrap() == 3);
     assert!(s3 == "xyz");
 }
 
@@ -58,7 +58,7 @@ fn from_str() {
 #[test]
 fn car_cdr_simple() {
     let s = CharListSegment::from("a");
-    let_assert!(Some((head, tail)) = s.car_cdr(), "s = {s:?}");
+    let_assert!(Ok(Some((head, tail))) = s.car_cdr(), "s = {s:?}");
     check!(head == 'a');
     check!(tail == "");
 }
@@ -67,20 +67,20 @@ fn car_cdr_simple() {
 fn car_cdr_long() {
     let abc = CharListSegment::from("abc");
 
-    let_assert!(Some((a, bc)) = abc.car_cdr());
+    let_assert!(Ok(Some((a, bc))) = abc.car_cdr());
     assert!(a == 'a');
     assert!(bc == "bc");
 
-    let_assert!(Some((b, c)) = bc.car_cdr());
+    let_assert!(Ok(Some((b, c))) = bc.car_cdr());
     assert!(b == 'b');
     assert!(c == "c");
 
-    let_assert!(Some((c_char, empty)) = c.car_cdr(), "c = {c:?}");
+    let_assert!(Ok(Some((c_char, empty))) = c.car_cdr(), "c = {c:?}");
     assert!(c_char == 'c');
-    assert!(empty.is_empty());
+    assert!(empty.is_empty().unwrap());
     assert!(empty == "");
 
-    assert!(empty.car_cdr() == None);
+    assert!(matches!(empty.car_cdr(), Ok(None)));
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn cons_str_backwards() {
         sentence = sentence.cons_str(word).cons(' ');
     }
 
-    let_assert!(Some((' ', sentence)) = sentence.car_cdr());
+    let_assert!(Ok(Some((' ', sentence))) = sentence.car_cdr());
     assert!(sentence == "In the town where I was born");
 }
 

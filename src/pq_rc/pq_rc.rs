@@ -101,7 +101,13 @@ where
         PqRcCell::with_inner_raising_prio(cell_ref_mut, this.prio, action)
     }
 
-    /// SAFETY: TODO[document safety invariants]
+    /// If `this` has the highest priority (and no one else does), then give `action` a mutable
+    /// reference to the inner `T` value. Otherwise, pass `None` to the action to let it do
+    /// something else.
+    ///
+    /// # Safety
+    ///
+    /// * `action` may not mutate `this.ptr.value` in any way that is visible to other `PqRc`s.
     pub unsafe fn with_inner_lowering_prio<'a, F, O>(this: &'a Self, action: F) -> O
     where
         F: FnMut(Option<&'a mut T>) -> O,
