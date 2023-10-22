@@ -1,3 +1,4 @@
+mod seg_walker;
 #[cfg(test)]
 mod tests;
 
@@ -47,7 +48,7 @@ pub trait CharListTail: Clone + Default {
     /// Returns `Ok(Some(..))` if there is a next `CharList`. If there's no next
     /// `CharList`, returns `Ok(None)`. If an answer can't be given, returns
     /// `Err(..)`.
-    fn next_char_list(&self) -> Result<Option<CharList<Self>>, Self::Err>;
+    fn next_char_list<'a>(&'a self) -> Result<Option<&'a CharList<Self>>, Self::Err>;
 
     fn len(&self) -> Result<usize, Self::Err>;
 
@@ -59,7 +60,7 @@ pub trait CharListTail: Clone + Default {
 impl CharListTail for NoTail {
     type Err = Infallible;
 
-    fn next_char_list(&self) -> Result<Option<CharList<Self>>, Infallible> {
+    fn next_char_list(&self) -> Result<Option<&CharList<Self>>, Infallible> {
         Ok(None)
     }
 
@@ -340,13 +341,7 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// Returns as much of the length of the string as is possible to know right
     /// now.
     pub fn partial_len(&self) -> usize {
-        let mut len = 0;
-        let mut segment = Ok(Some(self.clone()));
-        while let Ok(Some(seg)) = segment {
-            len += seg.segment_len();
-            segment = seg.tail().next_char_list();
-        }
-        len
+        self.partial_segments().map(|seg| seg.segment_len()).sum()
     }
 
     /// Returns the length of this segment, ignoring any tail.
@@ -439,26 +434,25 @@ impl<Tail: CharListTail> CharList<Tail> {
             PqRc::mutate_or_clone_raising_prio(
                 &self.data,
                 |repr_mut| {
-                    let mut segment = Ok(Some(prefix.clone()));
-                    while let Ok(Some(seg)) = segment {
+                    for seg in prefix.partial_segments() {
                         repr_mut
                             .front_string
                             .prepend_from_bytes_iter(seg.segment_as_bytes().iter().copied());
-                        segment = seg.tail().next_char_list();
                     }
                     prefix_len
                 },
                 |_repr_ref| {
                     let mut new_string = FrontString::from(self.segment_as_str());
-                    let mut segment = Ok(Some(prefix.clone()));
-                    while let Ok(Some(seg)) = segment {
+
+                    for seg in prefix.partial_segments() {
                         new_string.prepend_from_bytes_iter(seg.segment_as_bytes().iter().copied());
-                        segment = seg.tail().next_char_list();
                     }
+
                     let repr = StringRepr {
                         front_string: new_string,
                         tail: self.tail().clone(),
                     };
+
                     (prefix_len, repr)
                 },
             )
@@ -625,7 +619,7 @@ impl<Tail: CharListTail> From<String> for CharList<Tail> {
 impl<Tail: CharListTail> fmt::Debug for CharList<Tail> {
     #[instrument(skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut cl = Some(self.clone());
+        let mut cl = Some(self);
         write!(f, "\"")?;
         while let Some(current) = cl {
             trace!("current.segment_as_str() == {:?}", current.segment_as_str());
@@ -645,7 +639,7 @@ impl<Tail: CharListTail> fmt::Debug for CharList<Tail> {
 impl<Tail: CharListTail> fmt::Display for CharList<Tail> {
     #[instrument(skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut cl = Some(self.clone());
+        let mut cl = Some(self);
         write!(f, "{}", self.segment_as_str())?;
         while let Some(tail) = cl {
             write!(f, "{}", tail.segment_as_str())?;
@@ -669,7 +663,7 @@ where
     #[instrument(fields(self = ?self, other = other.as_ref()))]
     fn eq(&self, other: &S) -> bool {
         let mut other = other.as_ref();
-        let mut cl_opt = Some(self.clone());
+        let mut cl_opt = Some(self);
         while let Some(cl) = cl_opt {
             let seg_len = cl.segment_len();
             trace!(
@@ -770,7 +764,7 @@ where
     Tail: CharListTail,
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut cl_opt = Some(self.clone());
+        let mut cl_opt = Some(self);
         while let Some(cl) = cl_opt {
             cl.segment_as_str().hash(state);
             cl_opt = match cl.data.tail.next_char_list() {

@@ -1,6 +1,6 @@
 [package]
 name = "char-list"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 description = "A persistent string type with the same API as a linked-list of characters."

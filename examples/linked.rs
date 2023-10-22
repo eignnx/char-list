@@ -112,11 +112,11 @@ impl CharListTail for LinkedTail {
         }
     }
 
-    fn next_char_list(&self) -> Result<Option<CharList<Self>>, Self::Err> {
+    fn next_char_list(&self) -> Result<Option<&CharList<Self>>, Self::Err> {
         let Some(ground) = self.0.get() else {
             return Ok(None);
         };
-        Ok(ground.clone().map(|s| s.segment))
+        Ok(ground.as_ref().map(|s| &s.segment))
     }
 }
 
