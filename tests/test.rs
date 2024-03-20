@@ -3,28 +3,28 @@
 use assert2::{assert, check, let_assert};
 use test_log::test;
 
-use char_list::CharListSegment;
+use char_list::FiniteCharList;
 
 #[test]
 fn construct_destruct() {
-    CharListSegment::new();
+    FiniteCharList::new();
 }
 
 #[test]
 fn construct_cmp() {
-    let s = CharListSegment::new();
+    let s = FiniteCharList::new();
     assert!(s == "");
 }
 
 #[test]
 fn cons_1() {
-    let s = CharListSegment::new().cons('a');
+    let s = FiniteCharList::new().cons('a');
     assert!(s == "a");
 }
 
 #[test]
 fn cons_2() {
-    let s0 = CharListSegment::new();
+    let s0 = FiniteCharList::new();
     let s1 = s0.cons('z');
     let s2 = s1.cons('y');
     let s3 = s2.cons('x');
@@ -41,7 +41,7 @@ fn cons_2() {
 #[test]
 fn cons_hirigana() {
     let entire = "いろはにほへとちりぬるを";
-    let mut s = CharListSegment::new();
+    let mut s = FiniteCharList::new();
     for ch in entire.chars().rev() {
         s = s.cons(ch);
     }
@@ -51,13 +51,13 @@ fn cons_hirigana() {
 #[test]
 fn from_str() {
     let text = "いろはにほへとちりぬるを";
-    let s = CharListSegment::from(text);
+    let s = FiniteCharList::from(text);
     assert!(s == text);
 }
 
 #[test]
 fn car_cdr_simple() {
-    let s = CharListSegment::from("a");
+    let s = FiniteCharList::from("a");
     let_assert!(Ok(Some((head, tail))) = s.car_cdr(), "s = {s:?}");
     check!(head == 'a');
     check!(tail == "");
@@ -65,7 +65,7 @@ fn car_cdr_simple() {
 
 #[test]
 fn car_cdr_long() {
-    let abc = CharListSegment::from("abc");
+    let abc = FiniteCharList::from("abc");
 
     let_assert!(Ok(Some((a, bc))) = abc.car_cdr());
     assert!(a == 'a');
@@ -85,7 +85,7 @@ fn car_cdr_long() {
 
 #[test]
 fn cons_str_backwards() {
-    let mut sentence = CharListSegment::new();
+    let mut sentence = FiniteCharList::new();
 
     const WORDS: &[&str] = &["In", "the", "town", "where", "I", "was", "born"];
 
@@ -99,7 +99,7 @@ fn cons_str_backwards() {
 
 #[test]
 fn tree_of_char_lists() {
-    let mammal = CharListSegment::from("mammal");
+    let mammal = FiniteCharList::from("mammal");
     {
         let dog = mammal.cons_str("dog < ");
         let poodle = dog.cons_str("poodle < ");

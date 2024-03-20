@@ -29,7 +29,9 @@ pub type NoTail = ();
 ///    into its first character and everything except the first character.
 ///
 /// # Note: `CharList: !Deref<Target=str>`
-/// This type specifically does **not** implement `Deref<Target=str>`.
+/// This type specifically does **not** implement `Deref<Target=str>`. It cannot
+/// because it's too generic, and might have a tail with more text. For a
+/// version that does implement this trait, see [`FiniteCharList`].
 pub struct CharList<Tail: CharListTail = NoTail> {
     data: PqRc<StringRepr<Tail>, Len>,
 }
@@ -104,26 +106,26 @@ impl CharList<NoTail> {
     /// referenced by the prefix.
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let creepy_book = CharList::from("necronomicon");
+    /// let creepy_book = FiniteCharList::from("necronomicon");
     /// let pair = creepy_book.split_after_prefix("necro");
     /// assert!(pair == ("necro", CharList::from("nomicon")));
     /// ```
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let words = CharList::from("hello world");
+    /// let words = FiniteCharList::from("hello world");
     /// let (hello, rest) = words.split_after_prefix(char::is_alphabetic);
     /// assert!(hello == "hello");
     /// assert!(rest == " world");
     /// ```
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let numbers = CharList::from("1253 39271 4542");
+    /// let numbers = FiniteCharList::from("1253 39271 4542");
     /// let (first_word, rest) = numbers.split_after_prefix(char::is_alphabetic);
     /// assert!(first_word.is_empty());
     /// assert!(rest == numbers);
@@ -162,9 +164,9 @@ impl CharList<NoTail> {
     /// # Examples
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let rustonomicon = CharList::from("rustonomicon");
+    /// let rustonomicon = FiniteCharList::from("rustonomicon");
     /// let ptr_before = rustonomicon.backing_string().as_ptr();
     ///
     /// let idx = "rusto".len();
@@ -177,23 +179,23 @@ impl CharList<NoTail> {
     /// ```
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let word = CharList::from("word");
+    /// let word = FiniteCharList::from("word");
     /// let (empty, suffix) = word.split_at(0);
     /// assert!(empty.is_empty());
     /// assert!(suffix == word);
     /// ```
     ///
     /// ```should_panic
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let word = CharList::from("kitty");
+    /// let word = FiniteCharList::from("kitty");
     /// let _ = word.split_at(1000); // Panic!
     /// ```
     ///
     /// ```should_panic
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
     /// let pride_bytes: Vec<u8> = [
     ///     0xF0, 0x9F, 0x8F, 0xB3, // 1st char: 🏳
@@ -203,13 +205,13 @@ impl CharList<NoTail> {
     ///     0xF0, 0x9F, 0x8C, 0x88, // 4th char: 🌈
     /// ].to_vec();
     ///
-    /// let pride = CharList::from_utf8(pride_bytes).expect("bytes are valid utf8");
+    /// let pride = FiniteCharList::from_utf8(pride_bytes).expect("bytes are valid utf8");
     /// assert!(pride == "🏳️‍🌈");
     ///
     /// let _ = pride.split_at(2); // Panic!
     /// ```
     #[track_caller]
-    pub fn split_at(&self, split_index: usize) -> (&str, CharList) {
+    pub fn split_at(&self, split_index: usize) -> (&str, Self) {
         if split_index > self.len().expect("infallible") {
             panic!("given range begins beyond end of the `CharList`");
         }

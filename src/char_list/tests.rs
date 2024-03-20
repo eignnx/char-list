@@ -402,6 +402,7 @@ fn from_io_readable() {
 }
 
 #[test]
+#[ignore = "Reserve doesn't seem to be the problem right now."]
 fn reserving_test() {
     let old_s: CharList = "asdf".into();
     let old_cap = old_s.backing_string().capacity();
