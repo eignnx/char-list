@@ -48,7 +48,7 @@ pub trait CharListTail: Clone + Default {
     /// Returns `Ok(Some(..))` if there is a next `CharList`. If there's no next
     /// `CharList`, returns `Ok(None)`. If an answer can't be given, returns
     /// `Err(..)`.
-    fn next_char_list<'a>(&'a self) -> Result<Option<&'a CharList<Self>>, Self::Err>;
+    fn next_char_list(&self) -> Result<Option<&CharList<Self>>, Self::Err>;
 
     fn len(&self) -> Result<usize, Self::Err>;
 

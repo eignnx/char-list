@@ -6,59 +6,6 @@ use std::{
     ops::Deref,
 };
 
-#[cfg(test)]
-#[allow(unused)]
-use maybe_debug::maybe_debug;
-
-#[cfg(test)]
-pub mod new_counts {
-    use std::{
-        collections::HashMap,
-        sync::Mutex,
-        thread::{self, ThreadId},
-    };
-
-    lazy_static::lazy_static! {
-        /// Counts calls to `PqRcCell::new` for testing purposes.
-        static ref NEW_COUNTS: Mutex<HashMap<ThreadId, usize>> = Default::default();
-        static ref DROP_COUNTS: Mutex<HashMap<ThreadId, usize>> = Default::default();
-    }
-
-    pub fn reset_counts() {
-        let tid = thread::current().id();
-        NEW_COUNTS.lock().unwrap().insert(tid, 0);
-        DROP_COUNTS.lock().unwrap().insert(tid, 0);
-    }
-
-    pub fn total_new_count() -> usize {
-        let tid = thread::current().id();
-        *NEW_COUNTS.lock().unwrap().entry(tid).or_default()
-    }
-
-    pub fn incr_total_new_count() {
-        let tid = thread::current().id();
-        let mut guard = NEW_COUNTS.lock().unwrap();
-        let count = guard.entry(tid).or_default();
-        *count += 1;
-    }
-
-    pub fn total_drop_count() -> usize {
-        let tid = thread::current().id();
-        *DROP_COUNTS.lock().unwrap().entry(tid).or_default()
-    }
-
-    pub fn incr_total_drop_count() {
-        let tid = thread::current().id();
-        let mut guard = DROP_COUNTS.lock().unwrap();
-        let count = guard.entry(tid).or_default();
-        *count += 1;
-    }
-
-    pub fn current_live_allocs() -> usize {
-        total_new_count() - total_drop_count()
-    }
-}
-
 type Count = NonZeroUsize;
 
 pub struct PqRcCell<T: ?Sized, Priority: Ord> {
@@ -294,5 +241,58 @@ impl<T, Priority: Ord + Copy> Deref for PqRcCell<T, Priority> {
 
     fn deref(&self) -> &Self::Target {
         Self::inner(self)
+    }
+}
+
+#[cfg(test)]
+#[allow(unused)]
+use maybe_debug::maybe_debug;
+
+#[cfg(test)]
+pub mod new_counts {
+    use std::{
+        collections::HashMap,
+        sync::Mutex,
+        thread::{self, ThreadId},
+    };
+
+    lazy_static::lazy_static! {
+        /// Counts calls to `PqRcCell::new` for testing purposes.
+        static ref NEW_COUNTS: Mutex<HashMap<ThreadId, usize>> = Default::default();
+        static ref DROP_COUNTS: Mutex<HashMap<ThreadId, usize>> = Default::default();
+    }
+
+    pub fn reset_counts() {
+        let tid = thread::current().id();
+        NEW_COUNTS.lock().unwrap().insert(tid, 0);
+        DROP_COUNTS.lock().unwrap().insert(tid, 0);
+    }
+
+    pub fn total_new_count() -> usize {
+        let tid = thread::current().id();
+        *NEW_COUNTS.lock().unwrap().entry(tid).or_default()
+    }
+
+    pub fn incr_total_new_count() {
+        let tid = thread::current().id();
+        let mut guard = NEW_COUNTS.lock().unwrap();
+        let count = guard.entry(tid).or_default();
+        *count += 1;
+    }
+
+    pub fn total_drop_count() -> usize {
+        let tid = thread::current().id();
+        *DROP_COUNTS.lock().unwrap().entry(tid).or_default()
+    }
+
+    pub fn incr_total_drop_count() {
+        let tid = thread::current().id();
+        let mut guard = DROP_COUNTS.lock().unwrap();
+        let count = guard.entry(tid).or_default();
+        *count += 1;
+    }
+
+    pub fn current_live_allocs() -> usize {
+        total_new_count() - total_drop_count()
     }
 }
