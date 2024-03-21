@@ -8,6 +8,19 @@ use char_list::{CharList, CharListTail};
 #[derive(Debug, Default, Clone)]
 pub struct LinkedTail(Rc<OnceCell<Option<LinkedCharList>>>);
 
+impl LinkedTail {
+    pub fn get(&self) -> Result<&Option<LinkedCharList>, InstantiationError> {
+        self.0.get().ok_or(InstantiationError)
+    }
+
+    pub fn set(
+        &self,
+        tail: impl Into<Option<LinkedCharList>>,
+    ) -> Result<(), Option<LinkedCharList>> {
+        self.0.set(tail.into())
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct LinkedCharList {
     segment: CharList<LinkedTail>,
@@ -17,20 +30,18 @@ impl fmt::Debug for LinkedCharList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "\"")?;
         write!(f, "{}", self.segment_as_str())?;
-        let mut seg = self.segment.clone();
-        for _ in 0..10 {
-            match seg.tail().0.get() {
-                Some(Some(tail)) => {
-                    write!(f, "{}", tail.segment_as_str())?;
-                    seg = tail.segment.clone();
-                }
-                None => write!(f, "[.. _Tail]\"")?,
-                Some(None) => {
-                    write!(f, "\"")?;
-                    break;
-                }
-            }
+
+        let mut walker = self.segment.partial_segments();
+
+        for seg in &mut walker {
+            write!(f, "{}", seg.segment_as_str())?;
         }
+
+        match walker.final_err() {
+            Some(InstantiationError) => write!(f, "[.. _Tail]\"")?,
+            None => write!(f, "\"")?,
+        }
+
         Ok(())
     }
 }
@@ -43,15 +54,14 @@ impl LinkedCharList {
 
     #[instrument(skip(self), ret)]
     pub fn len(&self) -> Result<usize, InstantiationError> {
-        let mut segment = Some(self.segment.clone());
         let mut len = 0;
-        while let Some(seg) = segment {
+        let mut walker = self.segment.partial_segments();
+        for seg in &mut walker {
             trace!("accumulated len == {len}");
             len += seg.segment_len();
-            segment = match seg.tail().0.get() {
-                Some(next) => next.clone().map(|lcl| lcl.segment),
-                None => return Err(InstantiationError),
-            };
+        }
+        if let Some(e) = walker.final_err() {
+            return Err(e.clone());
         }
         trace!("accumulated len == {len}");
         Ok(len)
@@ -88,7 +98,7 @@ impl LinkedCharList {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct InstantiationError;
 
 impl fmt::Display for InstantiationError {
@@ -151,15 +161,15 @@ mod tests {
     #[test]
     fn simple_closed() {
         let s = LinkedCharList::from("asdf");
-        assert!(s.tail().get() == Some(&None));
+        assert!(s.tail().get().unwrap().is_none());
         assert!(s == "asdf");
     }
 
     #[test]
     fn simple_open() {
         let s = LinkedCharList::partial_from("123");
-        assert!(s.tail().get() == None);
-        s.tail().set(Some(LinkedCharList::from("456"))).unwrap();
+        assert!(s.tail().get().is_err()); // Instantiation error.
+        s.tail().set(LinkedCharList::from("456")).unwrap();
         assert!(s == "123456");
     }
 
@@ -169,7 +179,7 @@ mod tests {
         let hello_world = LinkedCharList {
             segment: CharList::from_string_and_tail(
                 "Hello, ",
-                Rc::new(OnceCell::from(Some(world.clone()))),
+                LinkedTail(Rc::new(OnceCell::from(Some(world.clone())))),
             ),
         };
         assert!(hello_world == "Hello, world!");
@@ -179,6 +189,7 @@ mod tests {
             hello_world
                 .tail()
                 .next_char_list()
+                .unwrap()
                 .unwrap()
                 .backing_string()
                 .clone()
@@ -195,9 +206,9 @@ mod tests {
         let hij = LinkedCharList::partial_from("Hij");
         let klm = LinkedCharList::from("Klm");
 
-        abc.tail().set(Some(def.clone())).unwrap();
-        def.tail().set(Some(hij.clone())).unwrap();
-        hij.tail().set(Some(klm.clone())).unwrap();
+        abc.tail().set(def.clone()).unwrap();
+        def.tail().set(hij.clone()).unwrap();
+        hij.tail().set(klm.clone()).unwrap();
         assert!(abc == "AbcDefHijKlm");
     }
 }
