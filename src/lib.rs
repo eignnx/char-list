@@ -189,11 +189,3 @@ mod char_list;
 mod pq_rc;
 
 pub use crate::char_list::*;
-
-/// The full [`CharList`] type takes a type parameter which represents the tail
-/// of the list. For a `FiniteCharList`, the tail is [`NoTail`] -- an alias to
-/// `()`.
-///
-/// See documentation on [`CharList`] for explanation of why you might want a
-/// non-finite version of this type.
-pub type FiniteCharList = crate::char_list::CharList<NoTail>;
