@@ -5,7 +5,7 @@ A persistent string type with the same API as a linked-list of characters.
 ### `FiniteCharList`
 The `FiniteCharList` type is probably what you want to use. It behaves just like a linked list of characters but with better (TODO: verify) performance.
 
-## `CharList<Tail>`
+### `CharList<Tail>`
 The `CharList<Tail>` type allows customization of the data structure by allowing a custom tail. I'm using this to emulate Prolog's open-ended lists where the tail of the list may be an uninstantiated Prolog variable.
 
 A `FiniteCharList` is just a type alias for `CharList<()>`.
