@@ -3,7 +3,7 @@
 use assert2::{assert, check, let_assert};
 use test_log::test;
 
-use char_list::FiniteCharList;
+use char_list::finite::FiniteCharList;
 
 #[test]
 fn construct_destruct() {

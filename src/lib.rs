@@ -188,4 +188,5 @@
 mod char_list;
 mod pq_rc;
 
+pub use crate::char_list::finite::FiniteCharList;
 pub use crate::char_list::*;

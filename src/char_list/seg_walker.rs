@@ -15,6 +15,9 @@ pub struct SegmentWalker<'a, Tail: CharListTail> {
 }
 
 impl<'a, Tail: CharListTail> SegmentWalker<'a, Tail> {
+    /// To be used after the iterator has been consumed. Checks to see if the
+    /// final tail in the `CharList` gave an error (for instance "tail variable
+    /// was not sufficiently instantiated").
     pub fn final_err(&self) -> &Option<Tail::Err> {
         &self.err
     }

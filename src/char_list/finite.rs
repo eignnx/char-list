@@ -65,7 +65,7 @@ impl CharList<NoTail> {
     /// # use assert2::assert;
     /// let creepy_book = FiniteCharList::from("necronomicon");
     /// let pair = creepy_book.split_after_prefix("necro");
-    /// assert!(pair == ("necro", CharList::from("nomicon")));
+    /// assert!(pair == ("necro", FiniteCharList::from("nomicon")));
     /// ```
     ///
     /// ```
@@ -195,3 +195,11 @@ impl Add<CharList<NoTail>> for CharList<NoTail> {
         rhs.cons_str(self.as_str())
     }
 }
+
+impl PartialEq for FiniteCharList {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for FiniteCharList {}

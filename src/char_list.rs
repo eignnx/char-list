@@ -30,7 +30,7 @@ type Len = usize;
 /// This type specifically does **not** implement `Deref<Target=str>`. It cannot
 /// because it's too generic, and might have a tail with more text. For a
 /// version that does implement this trait, see [`FiniteCharList`].
-pub struct CharList<Tail: CharListTail = finite::NoTail> {
+pub struct CharList<Tail: CharListTail> {
     data: PqRc<StringRepr<Tail>, Len>,
 }
 
@@ -63,10 +63,10 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// # Example
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let empty = CharList::new();
-    /// assert!(empty.len() == 0);
+    /// let empty = FiniteCharList::new();
+    /// assert!(empty.len().unwrap() == 0);
     /// ```
     pub fn new() -> Self {
         Self::with_capacity_and_tail(0, Default::default())
@@ -150,14 +150,14 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// Basic usage:
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let foo = CharList::from("foo");
+    /// let foo = FiniteCharList::from("foo");
     /// assert!(foo.len() == Ok(3));
     ///
-    /// let fancy_foo = CharList::from("ƒoo"); // fancy f!
+    /// let fancy_foo = FiniteCharList::from("ƒoo"); // fancy f!
     /// assert!(fancy_foo.len() == Ok(4));
-    /// assert!(fancy_foo.chars().count() == 3);
+    /// assert!(fancy_foo.as_str().chars().count() == 3);
     /// ```
     #[instrument(ret, skip(self), fields(repr = %self))]
     pub fn len(&self) -> Result<usize, Tail::Err> {
@@ -204,9 +204,9 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// # Example
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let lick = CharList::from("lick");
+    /// let lick = FiniteCharList::from("lick");
     /// let slick = lick.cons('s');
     /// assert!(slick == "slick");
     /// ```
@@ -222,9 +222,9 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// # Example
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let tonic = CharList::from("tonic");
+    /// let tonic = FiniteCharList::from("tonic");
     /// let uh_oh = tonic.cons_str("cata");
     /// assert!(uh_oh == "catatonic");
     /// ```
@@ -295,17 +295,17 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// # Example
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let (g, oats) = CharList::from("goats").car_cdr().unwrap();
-    /// assert!((g, oats) == ('g', CharList::from("oats")));
+    /// let (g, oats) = FiniteCharList::from("goats").car_cdr().unwrap().unwrap();
+    /// assert!((g, oats) == ('g', FiniteCharList::from("oats")));
     /// ```
     ///
     /// ```
-    /// # use char_list::CharList;
+    /// # use char_list::FiniteCharList;
     /// # use assert2::assert;
-    /// let empty = CharList::new();
-    /// assert!(empty.car_cdr() == None);
+    /// let empty = FiniteCharList::new();
+    /// assert!(empty.car_cdr().unwrap().is_none());
     /// ```
     #[track_caller]
     pub fn car_cdr(&self) -> Result<Option<(char, Self)>, Tail::Err> {

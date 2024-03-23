@@ -1,13 +1,14 @@
-use crate::pq_rc::pq_rc_cell::new_counts::{current_live_allocs, reset_counts, total_new_count};
-use test_log::test;
-
-use super::CharList;
+use crate::{
+    pq_rc::pq_rc_cell::new_counts::{current_live_allocs, reset_counts, total_new_count},
+    FiniteCharList,
+};
 use assert2::{assert, check, let_assert};
 use std::iter;
+use test_log::test;
 
 #[test]
 fn car_cdr_then_cons() {
-    let lower_abc: CharList = "abc".into();
+    let lower_abc: FiniteCharList = "abc".into();
     let_assert!(Ok(Some(('a', bc))) = lower_abc.car_cdr());
     assert!(bc == "bc");
 
@@ -24,7 +25,7 @@ fn car_cdr_then_cons() {
 
 #[test]
 fn mem_test_cdr_down() {
-    let s3: CharList = "abc".into();
+    let s3: FiniteCharList = "abc".into();
     assert!(s3.backing_string().len() == 3);
 
     let_assert!(Ok(Some(('a', s2))) = s3.car_cdr());
@@ -51,8 +52,8 @@ fn mem_test_cdr_down() {
 
 #[test]
 fn segment_as_str() {
-    let hello: CharList = "Hello ".into();
-    let world: CharList = "world!".into();
+    let hello: FiniteCharList = "Hello ".into();
+    let world: FiniteCharList = "world!".into();
     let hello_world = world.cons_char_list(&hello);
     assert!(hello_world == "Hello world!");
     assert!(world.segment_len() == "world!".len());
@@ -63,7 +64,7 @@ fn segment_as_str() {
 
 #[test]
 fn mem_test_cons_up() {
-    let empty: CharList = CharList::new();
+    let empty: FiniteCharList = FiniteCharList::new();
     assert!(empty.is_empty().unwrap());
     assert!(empty.backing_string() == &"");
 
@@ -86,39 +87,39 @@ fn mem_test_cons_up() {
 }
 
 static NOUNS: [&str; 3] = ["candy", "ghost", "costume"];
-fn noun() -> Box<dyn Iterator<Item = CharList>> {
+fn noun() -> Box<dyn Iterator<Item = FiniteCharList>> {
     Box::new(
         NOUNS
             .into_iter()
-            .map(CharList::from)
+            .map(FiniteCharList::from)
             .collect::<Vec<_>>()
             .into_iter(),
     )
 }
 
 static VERBS: [&str; 3] = ["chased", "stalked", "frightened"];
-fn verb() -> Box<dyn Iterator<Item = CharList>> {
+fn verb() -> Box<dyn Iterator<Item = FiniteCharList>> {
     Box::new(
         VERBS
             .into_iter()
-            .map(CharList::from)
+            .map(FiniteCharList::from)
             .collect::<Vec<_>>()
             .into_iter(),
     )
 }
 
 static DETERMINERS: [&str; 5] = ["the", "that", "my", "your", "some"];
-fn determiner() -> Box<dyn Iterator<Item = CharList>> {
+fn determiner() -> Box<dyn Iterator<Item = FiniteCharList>> {
     Box::new(
         DETERMINERS
             .into_iter()
-            .map(CharList::from)
+            .map(FiniteCharList::from)
             .collect::<Vec<_>>()
             .into_iter(),
     )
 }
 
-fn sentence_forward() -> Box<dyn Iterator<Item = CharList>> {
+fn sentence_forward() -> Box<dyn Iterator<Item = FiniteCharList>> {
     Box::new(determiner().flat_map(|d1| {
         noun().flat_map(move |n1| {
             let d1 = d1.clone();
@@ -151,7 +152,7 @@ fn sentence_forward() -> Box<dyn Iterator<Item = CharList>> {
     }))
 }
 
-fn simple_sentence_backwards() -> Box<dyn Iterator<Item = CharList>> {
+fn simple_sentence_backwards() -> Box<dyn Iterator<Item = FiniteCharList>> {
     Box::new(noun().flat_map(move |n| {
         determiner().flat_map(move |d| {
             let n = n.clone();
@@ -160,7 +161,7 @@ fn simple_sentence_backwards() -> Box<dyn Iterator<Item = CharList>> {
     }))
 }
 
-fn sentence_backward() -> Box<dyn Iterator<Item = CharList>> {
+fn sentence_backward() -> Box<dyn Iterator<Item = FiniteCharList>> {
     Box::new(noun().flat_map(|n2| {
         determiner().flat_map(move |d2| {
             let n2 = n2.clone();
@@ -221,7 +222,7 @@ macro_rules! test_nonterminal_expansions {
                         live_char_lists.iter().copied().sum::<usize>() / live_char_lists.len();
                     check!(avg_live <= words_used.len());
 
-                    // Due to the way these nested `flat_map`s are set up, we expect `CharList`s to
+                    // Due to the way these nested `flat_map`s are set up, we expect `FiniteCharList`s to
                     // be allocated according to the product of the lengths of the word groups.
                     // In a real application, things could probably be setup more efficiently.
                     let num_words_generated: usize = $word_groups.iter().map(|g| g.len()).product();
@@ -260,7 +261,7 @@ mod parser_use_case {
     use assert2::assert;
     use test_log::test;
 
-    fn character(target: char) -> impl Fn(&CharList) -> Option<(char, CharList)> {
+    fn character(target: char) -> impl Fn(&FiniteCharList) -> Option<(char, FiniteCharList)> {
         move |i| {
             let (ch, i) = i.car_cdr().unwrap()?;
             (ch == target).then_some((ch, i))
@@ -268,8 +269,8 @@ mod parser_use_case {
     }
 
     fn many0<T>(
-        p: impl Fn(&CharList) -> Option<(T, CharList)>,
-    ) -> impl Fn(&CharList) -> Option<(Vec<T>, CharList)> {
+        p: impl Fn(&FiniteCharList) -> Option<(T, FiniteCharList)>,
+    ) -> impl Fn(&FiniteCharList) -> Option<(Vec<T>, FiniteCharList)> {
         move |i| {
             let mut i = i.clone();
             let mut ts = vec![];
@@ -288,25 +289,25 @@ mod parser_use_case {
         }
     }
 
-    fn or<T, P1, P2>(p1: P1, p2: P2) -> impl Fn(&CharList) -> Option<(T, CharList)>
+    fn or<T, P1, P2>(p1: P1, p2: P2) -> impl Fn(&FiniteCharList) -> Option<(T, FiniteCharList)>
     where
-        P1: Fn(&CharList) -> Option<(T, CharList)>,
-        P2: Fn(&CharList) -> Option<(T, CharList)>,
+        P1: Fn(&FiniteCharList) -> Option<(T, FiniteCharList)>,
+        P2: Fn(&FiniteCharList) -> Option<(T, FiniteCharList)>,
     {
         move |i| p1(i).or_else(|| p2(i))
     }
 
-    fn ws0(i: &CharList) -> Option<((), CharList)> {
+    fn ws0(i: &FiniteCharList) -> Option<((), FiniteCharList)> {
         let (_, i) = many0(character(' '))(i)?;
         Some(((), i))
     }
 
-    fn ident(i: &CharList) -> Option<(Token, CharList)> {
+    fn ident(i: &FiniteCharList) -> Option<(Token, FiniteCharList)> {
         let (ident, i) = i.split_after_nonempty_prefix(char::is_alphabetic)?;
         Some((Token::Ident(ident.to_owned()), i))
     }
 
-    fn nat(i: &CharList) -> Option<(Token, CharList)> {
+    fn nat(i: &FiniteCharList) -> Option<(Token, FiniteCharList)> {
         let (n, i) = i.split_after_nonempty_prefix(char::is_numeric)?;
         let n = n.parse::<u64>().ok()?;
         Some((Token::Nat(n), i))
@@ -324,9 +325,9 @@ mod parser_use_case {
 
         reset_counts();
 
-        let i = CharList::from("one 2 three 456");
+        let i = FiniteCharList::from("one 2 three 456");
 
-        let words = many0(|i: &CharList| {
+        let words = many0(|i: &FiniteCharList| {
             let (tok, i) = or(ident, nat)(i)?;
             let (_, i) = ws0(&i)?;
             Some((tok, i))
@@ -397,14 +398,14 @@ fn from_io_readable() {
     let text = "asdfasdfasdfasdfasdfasfasdfadsfasdfasdf";
     let s = text.to_string();
     let mut r = BufReader::new(std::io::Cursor::new(s));
-    let cl: CharList = CharList::from_io_readable(&mut r).unwrap();
+    let cl: FiniteCharList = FiniteCharList::from_io_readable(&mut r).unwrap();
     assert!(cl == text);
 }
 
 #[test]
 #[ignore = "Reserve doesn't seem to be the problem right now."]
 fn reserving_test() {
-    let old_s: CharList = "asdf".into();
+    let old_s: FiniteCharList = "asdf".into();
     let old_cap = old_s.backing_string().capacity();
     let new_s_1 = old_s.reserving(100);
     assert!(new_s_1.backing_string().capacity() == old_cap + 100);
