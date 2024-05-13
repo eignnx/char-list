@@ -288,9 +288,12 @@ impl<Tail: CharListTail> CharList<Tail> {
     }
 
     /// Returns a pair containing the first character of `self` and a
-    /// [`CharList`] made up of everything after the first character of `self`.
+    /// [`CharList`] made up of everything after the first [`char`] of `self`.
     ///
-    /// Returns [`None`] if `self` is empty.
+    /// Returns `Ok(None)` if `self` is empty and there's no tail.
+    ///
+    /// Returns `Err` if the `self` is empty and the tail cannot be accessed for
+    /// some reason.
     ///
     /// # Example
     ///
@@ -309,14 +312,24 @@ impl<Tail: CharListTail> CharList<Tail> {
     /// ```
     #[track_caller]
     pub fn car_cdr(&self) -> Result<Option<(char, Self)>, Tail::Err> {
-        let Some(first_char) = self.segment_as_str().chars().next() else {
-            return Ok(None);
-        };
-        let new_len = self.segment_len() - first_char.len_utf8();
-        let cdr = Self {
-            data: PqRc::clone_with_priority(&self.data, new_len),
-        };
-        Ok(Some((first_char, cdr)))
+        match self.segment_as_str().chars().next() {
+            Some(first_char) => {
+                let nbytes = first_char.len_utf8();
+                let new_len = self.segment_len() - nbytes;
+                let cdr = Self {
+                    data: PqRc::clone_with_priority(&self.data, new_len),
+                };
+                Ok(Some((first_char, cdr)))
+            }
+            None => match self.tail().next_char_list() {
+                // Maybe this *was* the last segment, and there's no tail.
+                Ok(None) => Ok(None),
+                // But maybe there *is* a tail. Then defer to the tail.
+                Ok(Some(tail)) => tail.car_cdr(),
+                // Also if we can't determine if there's a tail: error.
+                Err(e) => Err(e),
+            },
+        }
     }
 
     /// # Safety
